@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+
+# Electron/Vite build output
+out/
+dist/
+release/
+.vite/
+.electron-vite/
+
+# Test and coverage output
+coverage/
+.nyc_output/
+test-results/
+
+# Runtime logs and diagnostic dumps
+logs/
+*.log
+*.log.*
+*.dmp
+*.dump
+*.crash
+
+# Local environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Signing certificates and private keys
+*.p12
+*.pfx
+*.cer
+*.crt
+*.key
+*.pem
+
+# Temporary files and caches
+.cache/
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.orig
+
+# Package manager diagnostics
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and IDEs
+.idea/
+.vscode/
+*.code-workspace
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Electron Builder generated metadata
+builder-debug.yml
+builder-effective-config.yaml

@@ -1,0 +1,43 @@
+name: Publicar aplicaciÃ³n Windows
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validar certificado de firma
+        shell: pwsh
+        run: |
+          if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD) {
+            throw 'Configura WINDOWS_CERTIFICATE_BASE64 y WINDOWS_CERTIFICATE_PASSWORD antes de publicar.'
+          }
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Construir, firmar y publicar artefactos
+        run: npx electron-builder --win --publish always
+      - run: npm run release:verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LogYourTime-Windows-${{ github.ref_name }}
+          path: |
+            release/latest.yml
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: error

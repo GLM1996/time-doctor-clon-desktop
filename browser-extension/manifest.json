@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "LogYourTime Website Tracking",
+  "version": "1.0.0",
+  "description": "Envía únicamente el dominio de la pestaña activa a la aplicación LogYourTime instalada en este equipo.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApI+l7O8KpUL5Oh/bHaweGSm81mcKRvv8/tSB1UXEKvwQVO+8TTvDpZVkg2qorOG/Id+AbUDWUC/LEm2qT5VrMw7cxO00ea22eGxxIznLXx1vNpH/sAwxofomCSwJvXu07ip5ssc7QJsOie7gkmEoDV51DOF2KlZiPwNAmNzXqTJzXE9dLYk+SmIbq8GUMLl0tnXBLGR21ZwApHlOvnRmpfK9Iz788dPY1MPydp2ze+HHJTeUjHE4/y3SOvohoXxHqe2qn/1YX0aVLd2CD7n7CvuXtlqYJ1bF+R0SVpJ2G0oD5Bf3W02Q2h+KMUF4XgBa1OMYhh7Xkt+ZhtNExZIYBwIDAQAB",
+  "permissions": ["tabs", "alarms"],
+  "host_permissions": ["http://127.0.0.1:32145/*"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_title": "LogYourTime Website Tracking",
+    "default_icon": "icon.png"
+  }
+}
