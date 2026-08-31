@@ -10,6 +10,7 @@ export const INITIAL_ACTIVITY_STATUS = {
 export default function useTimerSession({
   apiAvailable,
   clearTransientStates,
+  commitClosedSession,
   electronAPI,
   loadTodayTotal,
   mountedRef,
@@ -79,6 +80,7 @@ export default function useTimerSession({
 
       sessionClosingRef.current = false;
       operationRef.current = "";
+      commitClosedSession(data.durationSeconds);
       setIsRunning(false);
       setActiveBreak(null);
       setElapsedSeconds(0);
@@ -91,11 +93,14 @@ export default function useTimerSession({
         reason: data.reason || "manual",
         message: data.message || "Sesión guardada correctamente.",
       });
-      loadTodayTotal();
+      if (!data.queuedForSync) {
+        void loadTodayTotal();
+      }
     });
   }, [
     apiAvailable,
     clearTransientStates,
+    commitClosedSession,
     electronAPI,
     loadTodayTotal,
     mountedRef,

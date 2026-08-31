@@ -95,7 +95,7 @@ class TrayService {
     new Notification({
       title: 'LogYourTime sigue funcionando',
       body,
-      silent: true,
+      silent: false,
     }).show();
   }
 

@@ -60,6 +60,7 @@ function Timer() {
   } = useActivityEvents({ apiAvailable, electronAPI, mountedRef });
 
   const {
+    commitClosedSession,
     reload: loadTodayTotal,
     sessionCount: todaySessions,
     total: todayTotal,
@@ -99,6 +100,7 @@ function Timer() {
   } = useTimerSession({
     apiAvailable,
     clearTransientStates,
+    commitClosedSession,
     electronAPI,
     loadTodayTotal,
     mountedRef,

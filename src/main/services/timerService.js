@@ -373,6 +373,7 @@ class TimerService {
       this._resetSessionState();
 
       this._notifyUI('event:session-closed', {
+        sessionId,
         reason: normalizedReason,
         message: queuedForSync
           ? 'La jornada fue guardada localmente y se sincronizará al recuperar la conexión.'
@@ -436,10 +437,10 @@ class TimerService {
     this._notifySyncUpdate();
     try {
       const promotedOfflineSession = await this._promoteActiveOfflineSession();
-      await this._syncPendingSessions();
+      const synchronizedSessions = await this._syncPendingSessions();
       await activityService.processActivityQueue();
       await screenshotService.processQueue();
-      if (promotedOfflineSession) {
+      if (promotedOfflineSession || synchronizedSessions > 0) {
         this._notifyUI(IPC_CHANNELS.EVENT_TIMER_UPDATE, {
           ...buildTimerUpdate({
             isRunning: this.isRunning,
@@ -464,7 +465,7 @@ class TimerService {
 
   async _syncPendingSessions() {
     if (this.pendingSessions.length === 0) {
-      return;
+      return 0;
     }
 
     const settings =
@@ -607,6 +608,8 @@ class TimerService {
     logger.info(
       `📊 Operaciones sincronizadas: ${successCount}. Pendientes: ${this.pendingSessions.length}.`
     );
+
+    return successCount;
   }
 
   _startConfiguredServices(settings) {

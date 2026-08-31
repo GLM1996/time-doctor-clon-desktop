@@ -39,7 +39,6 @@ export function registerIpcHandlers({ onQuit } = {}) {
    */
   if (handlersRegistered) {
     logger.warn("Los handlers IPC ya estaban registrados.");
-
     return;
   }
 
@@ -466,6 +465,7 @@ function registerTimerHandlers() {
       };
     }
   });
+
   ipcMain.handle(
     IPC_CHANNELS.TIMER_START_BREAK,
     async (_event, payload = {}) => {
@@ -483,6 +483,7 @@ function registerTimerHandlers() {
       }
     },
   );
+
   ipcMain.handle(IPC_CHANNELS.TIMER_STOP_BREAK, async () => {
     try {
       return { success: true, data: await timerService.stopBreak() };
@@ -493,6 +494,7 @@ function registerTimerHandlers() {
       };
     }
   });
+
   ipcMain.handle(IPC_CHANNELS.TIMER_GET_WORK_OPTIONS, async () => {
     try {
       const [projectsResponse, tasksResponse] = await Promise.all([
@@ -513,6 +515,7 @@ function registerTimerHandlers() {
       };
     }
   });
+  
   ipcMain.handle(IPC_CHANNELS.TIMER_START, async (_event, payload = {}) => {
     try {
       const input = normalizeTimerStartPayload(payload);

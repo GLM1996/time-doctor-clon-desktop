@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { runSingleFlight } from "../utils/singleFlight.js";
 import { reportRendererError } from "../utils/rendererError.js";
 
@@ -9,6 +9,13 @@ export default function useTodaySummary({
 }) {
   const [total, setTotal] = useState(0);
   const [sessionCount, setSessionCount] = useState(0);
+  const summaryDateRef = useRef(null);
+
+  const commitClosedSession = useCallback((durationSeconds) => {
+    const duration = normalizeNonNegativeInteger(durationSeconds);
+    setTotal((current) => current + duration);
+    setSessionCount((current) => current + 1);
+  }, []);
 
   const reload = useCallback(async () => {
     if (!apiAvailable) return;
@@ -20,14 +27,20 @@ export default function useTodaySummary({
       }
       if (!mountedRef.current) return;
 
-      setTotal(normalizeNonNegativeInteger(result?.data?.totalDuration));
-      setSessionCount(normalizeNonNegativeInteger(result?.data?.sessionCount));
+      const nextDate = result?.data?.date || null;
+      const sameDay = Boolean(nextDate && summaryDateRef.current === nextDate);
+      const nextTotal = normalizeNonNegativeInteger(result?.data?.totalDuration);
+      const nextSessionCount = normalizeNonNegativeInteger(result?.data?.sessionCount);
+
+      setTotal((current) => sameDay ? Math.max(current, nextTotal) : nextTotal);
+      setSessionCount((current) => sameDay ? Math.max(current, nextSessionCount) : nextSessionCount);
+      summaryDateRef.current = nextDate;
     } catch (error) {
       reportRendererError("Error cargando total del día", error);
     }
   }, [apiAvailable, electronAPI, mountedRef]);
 
-  return { reload, sessionCount, total };
+  return { commitClosedSession, reload, sessionCount, total };
 }
 
 function normalizeNonNegativeInteger(value) {
