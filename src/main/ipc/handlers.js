@@ -4,7 +4,7 @@ import { IPC_CHANNELS } from "./channels.js";
 
 import logger from "../utils/logger.js";
 import apiClient from "../services/apiClient.js";
-import { authStore, credentialStore } from "../services/store.js";
+import { appPreferenceStore, authStore, credentialStore } from "../services/store.js";
 import timerService from "../services/timerService.js";
 import screenshotService from "../services/screenshotService.js";
 import trayService from "../services/trayService.js";
@@ -14,6 +14,7 @@ import { canUsePendingData } from "../services/pendingDataOwnerPolicy.js";
 import crashReporterService from "../services/crashReporterService.js";
 import { persistAuthSession } from "../services/authPersistencePolicy.js";
 import { revokeRemoteSession } from "../services/remoteSessionCleanup.js";
+import windowsStartupService from "../services/windowsStartupService.js";
 import {
   normalizeBreakPayload,
   normalizeLoginPayload,
@@ -81,6 +82,19 @@ function registerAppHandlers() {
       nodeVersion: process.versions.node,
       chromeVersion: process.versions.chrome,
     };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_STARTUP_SETTING, () => ({
+    enabled: appPreferenceStore.getStartWithWindows(),
+    supported: process.platform === 'win32' && app.isPackaged,
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.APP_SET_STARTUP_SETTING, (_event, payload = {}) => {
+    if (typeof payload.enabled !== 'boolean') {
+      throw new Error('La preferencia de inicio debe ser verdadera o falsa.');
+    }
+    appPreferenceStore.setStartWithWindows(payload.enabled);
+    return windowsStartupService.setEnabled(payload.enabled);
   });
 
   ipcMain.handle(
@@ -364,9 +378,21 @@ function registerAuthHandlers() {
         user: currentUser,
       };
     } catch (error) {
+      const status = Number(error.response?.status);
       logger.error(
         `Error en login: ${error.response?.data?.message || error.message}`,
       );
+
+      if (!error.response || status >= 500) {
+        return {
+          success: false,
+          code: "SERVICE_UNAVAILABLE",
+          retryable: true,
+          message: Number.isFinite(status)
+            ? `El servicio no está disponible temporalmente (código ${status}). Intenta nuevamente en unos minutos.`
+            : "No fue posible conectarse con el servidor. Verifica tu conexión e intenta nuevamente.",
+        };
+      }
 
       return {
         success: false,
@@ -560,6 +586,16 @@ function registerTimerHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.TIMER_GET_STATUS, async () => {
     try {
+      if (!timerService.getStatus().isRunning) {
+        try {
+          const current = await apiClient.get("/sessions/current");
+          if (current.data?.success && current.data.data) {
+            await timerService.restoreActiveSession(current.data.data);
+          }
+        } catch (recoveryError) {
+          logger.warn(`No se pudo recuperar la sesión activa: ${recoveryError.message}`);
+        }
+      }
       return await timerService.getStatus();
     } catch (error) {
       logger.error(`Error en TIMER_GET_STATUS: ${error.message}`);

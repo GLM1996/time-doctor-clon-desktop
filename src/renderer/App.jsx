@@ -12,6 +12,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Power,
+  Settings,
   UserRound,
 } from "lucide-react";
 
@@ -38,6 +39,13 @@ const MENU_ITEMS = [
     description: "Consultar reportes y actividad",
     icon: LayoutDashboard,
     type: "external",
+  },
+  {
+    id: "preferences",
+    label: "Preferencias",
+    description: "Inicio y comportamiento",
+    icon: Settings,
+    type: "internal",
   },
 ];
 
@@ -683,9 +691,98 @@ function ViewContent({ activeView }) {
     );
   }
 
+  if (activeView === "preferences") {
+    return <PreferencesView />;
+  }
+
   return (
     <div className="flex h-full items-center justify-center p-6 text-center">
       <p className="text-sm text-[#777970]">Vista no disponible.</p>
+    </div>
+  );
+}
+
+function PreferencesView() {
+  const electronAPI = window.electronAPI;
+  const [enabled, setEnabled] = useState(true);
+  const [supported, setSupported] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    electronAPI.getStartupSetting()
+      .then((result) => {
+        if (!active) return;
+        setEnabled(result?.enabled !== false);
+        setSupported(result?.supported !== false);
+      })
+      .catch((error) => {
+        if (active) setMessage(getRendererErrorMessage(error, "No se pudo cargar la preferencia."));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [electronAPI]);
+
+  const changeStartup = async () => {
+    const nextValue = !enabled;
+    setSaving(true);
+    setMessage("");
+    try {
+      const result = await electronAPI.setStartupSetting(nextValue);
+      setEnabled(result?.enabled ?? nextValue);
+      setSupported(result?.supported !== false);
+      setMessage(nextValue
+        ? "LogYourTime se iniciará automáticamente con Windows."
+        : "LogYourTime ya no se iniciará automáticamente con Windows.");
+    } catch (error) {
+      setMessage(getRendererErrorMessage(error, "No se pudo guardar la preferencia."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto p-4 sm:p-6">
+      <section className="mx-auto max-w-2xl overflow-hidden rounded-[22px] border border-[#ded9cd] bg-[#fbf9f4] shadow-[0_18px_45px_rgba(40,37,31,0.12)]">
+        <header className="border-b border-[#e3ded4] px-5 py-5 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#d8b98c] bg-[#ead7bb] text-[#76501f]">
+              <Settings className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-[#30332c]">Preferencias de la aplicación</h2>
+              <p className="mt-0.5 text-xs text-[#777970]">Configura cómo se comporta LogYourTime en este equipo.</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-5 rounded-2xl border border-[#ded9cd] bg-white px-4 py-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#3f423b]">Iniciar con Windows</p>
+              <p className="mt-1 max-w-md text-xs leading-5 text-[#777970]">Abre LogYourTime automáticamente cuando inicies sesión en Windows. Esta opción está activada por defecto.</p>
+              {!supported && !loading && <p className="mt-2 text-[10px] font-medium text-[#986126]">El cambio se aplicará cuando uses la versión instalada en Windows.</p>}
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              aria-label="Iniciar LogYourTime con Windows"
+              onClick={changeStartup}
+              disabled={loading || saving}
+              className={`relative mt-0.5 h-7 w-12 shrink-0 rounded-full border transition-colors focus:outline-none focus:ring-4 focus:ring-[#94602a]/15 disabled:cursor-wait disabled:opacity-60 ${enabled ? "border-[#617258] bg-[#6f8064]" : "border-[#aaa9a2] bg-[#b8b7b0]"}`}
+            >
+              <span className={`absolute left-1 top-1 h-[18px] w-[18px] rounded-full bg-white shadow-[0_1px_4px_rgba(35,36,31,0.3)] transition-transform duration-200 ${enabled ? "translate-x-5" : "translate-x-0"}`} />
+            </button>
+          </div>
+
+          {message && <p className="mt-4 rounded-xl border border-[#dfd5c6] bg-[#f5f1e9] px-4 py-3 text-xs text-[#62655d]">{message}</p>}
+        </div>
+      </section>
     </div>
   );
 }

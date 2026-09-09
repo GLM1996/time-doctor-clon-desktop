@@ -29,7 +29,7 @@ export function TimerErrorNotice({ apiAvailable, message }) {
 }
 
 export function SessionResultNotice({ isRunning, result }) {
-  if (!result || isRunning) return null;
+  if (!result || isRunning || result.reason !== "inactivity") return null;
 
   const endedByInactivity = result.reason === "inactivity";
   const Icon = endedByInactivity ? TimerReset : CheckCircle2;

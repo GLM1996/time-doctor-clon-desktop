@@ -8,6 +8,8 @@ export const IPC_CHANNELS = {
   APP_QUIT: 'app:quit',
   APP_MINIMIZE: 'app:minimize',
   APP_CONNECTION_HINT: 'app:connection-hint',
+  APP_GET_STARTUP_SETTING: 'app:get-startup-setting',
+  APP_SET_STARTUP_SETTING: 'app:set-startup-setting',
 
   // ========================================
   // AUTH

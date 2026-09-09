@@ -80,7 +80,7 @@ export default function useTimerSession({
 
       sessionClosingRef.current = false;
       operationRef.current = "";
-      commitClosedSession(data.durationSeconds);
+      commitClosedSession(data.durationSeconds ?? data.duration);
       setIsRunning(false);
       setActiveBreak(null);
       setElapsedSeconds(0);

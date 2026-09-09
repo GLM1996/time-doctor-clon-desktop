@@ -15,6 +15,7 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
         'X-Client-Type': 'desktop',
+        'X-Client-Version': app.getVersion(),
       }
     });
 

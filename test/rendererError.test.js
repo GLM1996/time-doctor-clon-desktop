@@ -5,6 +5,7 @@ import { getRendererErrorMessage, sanitizeRendererText } from "../src/renderer/u
 test("renderer errors translate network and hide internal IPC details", () => {
   assert.match(getRendererErrorMessage({ code: "ERR_NETWORK" }, "Fallback"), /conectarse/);
   assert.equal(getRendererErrorMessage({ message: "Error invoking remote method ENOENT" }, "Fallback"), "Fallback");
+  assert.match(getRendererErrorMessage({ message: "Request failed with status code 522" }, "Fallback"), /temporalmente.*522/);
 });
 
 test("renderer error sanitizer redacts credentials and personal data", () => {

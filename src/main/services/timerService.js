@@ -30,6 +30,7 @@ import {
   schedulePendingSessionRetry,
 } from './pendingSessionPolicy.js';
 import {
+  calculateElapsedSeconds,
   formatDuration,
   isAlreadyClosedSessionError,
   isNetworkError,
@@ -145,7 +146,7 @@ class TimerService {
 
       this.sessionId = session._id;
       this.startTime = new Date(session.startTime);
-      this.elapsedSeconds = 0;
+      this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
       this.isRunning = true;
       this.isOffline = isOffline;
       configService.setTrackingActive(true);
@@ -214,6 +215,50 @@ class TimerService {
       message: `Seguimiento detenido por la pausa ${activeBreak?.type?.name || ''}.`,
     });
     return activeBreak;
+  }
+
+  async restoreActiveSession(session) {
+    if (this.isRunning || !session?._id || !session?.startTime) return false;
+
+    const localDevice = buildDeviceInfo({}, {
+      platform: process.platform,
+      osVersion: process.getSystemVersion?.() || 'unknown',
+      appVersion: app.getVersion?.() || '1.0.0',
+    });
+    const remoteHostname = String(session.deviceInfo?.hostname || '').trim().toLowerCase();
+    const localHostname = String(localDevice.hostname || '').trim().toLowerCase();
+
+    // Nunca adoptar una sesión que pertenece claramente a otro equipo.
+    if (remoteHostname && localHostname && remoteHostname !== localHostname) return false;
+
+    const startTime = new Date(session.startTime);
+    if (Number.isNaN(startTime.getTime())) return false;
+
+    const config = await this._loadConfig();
+    const settings = this._getSettings(config);
+
+    this._cleanupIntervals();
+    this.currentConfig = settings;
+    this.currentDeviceInfo = localDevice;
+    this.sessionId = String(session._id);
+    this.startTime = startTime;
+    this.elapsedSeconds = calculateElapsedSeconds(startTime);
+    this.isRunning = true;
+    this.isOffline = false;
+    this.workSelection = buildWorkSelection({
+      projectId: session.project?._id || session.project || null,
+      taskId: session.task?._id || session.task || null,
+    });
+
+    configService.setTrackingActive(true);
+    this._startTicker();
+    this.statusCheckInterval = setInterval(() => this._checkSessionStatus(), 30 * 1000);
+    this._startConfiguredServices(settings);
+    configService.startSync();
+    this._notifyStatusChange();
+
+    logger.info(`Sesión activa restaurada después del reinicio: ${this.sessionId}`);
+    return true;
   }
 
   async stopBreak() {
@@ -300,8 +345,9 @@ class TimerService {
     const sessionId = this.sessionId;
     const wasOffline = this.isOffline;
     const startTime = this.startTime;
-    const duration = this.elapsedSeconds;
     const endTime = new Date();
+    this.elapsedSeconds = calculateElapsedSeconds(startTime, endTime);
+    const duration = this.elapsedSeconds;
 
     try {
       logger.info(`🔴 Deteniendo sesión... Motivo: ${reason}`);
@@ -313,6 +359,7 @@ class TimerService {
       }
 
       let queuedForSync = false;
+      let confirmedDuration = duration;
 
       if (wasOffline) {
         this._queueOfflineSession(buildPendingOfflineSession({
@@ -345,6 +392,11 @@ class TimerService {
             throw new Error(
               response.data?.message || 'Error al detener la sesión'
             );
+          }
+
+          const serverDuration = Number(response.data?.data?.totalDuration);
+          if (Number.isFinite(serverDuration) && serverDuration >= 0) {
+            confirmedDuration = Math.floor(serverDuration);
           }
         } catch (error) {
           const offlineEnabled =
@@ -380,8 +432,9 @@ class TimerService {
           : normalizedReason === 'inactivity'
             ? 'La jornada fue cerrada por inactividad.'
             : 'La jornada fue guardada correctamente.',
-        duration,
-        durationFormatted: formatDuration(duration),
+        duration: confirmedDuration,
+        durationSeconds: confirmedDuration,
+        durationFormatted: formatDuration(confirmedDuration),
         wasOffline,
         queuedForSync
       });
@@ -392,8 +445,9 @@ class TimerService {
 
       return {
         sessionId,
-        duration,
-        durationFormatted: formatDuration(duration),
+        duration: confirmedDuration,
+        durationSeconds: confirmedDuration,
+        durationFormatted: formatDuration(confirmedDuration),
         status: 'stopped',
         wasOffline,
         queuedForSync
@@ -698,6 +752,9 @@ class TimerService {
   // Limpieza local idempotente: nunca hace red ni bloquea la salida de Electron.
   prepareForShutdown() {
     try {
+      if (this.isRunning && this.startTime) {
+        this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
+      }
       this._stopServices();
       if (this.isRunning && this.sessionId) {
         const endTime = new Date();
@@ -922,6 +979,9 @@ class TimerService {
   }
 
   getStatus() {
+    if (this.isRunning && this.startTime) {
+      this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
+    }
     return buildTimerStatus({
       isRunning: this.isRunning,
       currentBreakId: this.currentBreakId,
@@ -969,7 +1029,7 @@ class TimerService {
     this._stopTicker();
 
     this.tickInterval = setInterval(() => {
-      this.elapsedSeconds += 1;
+      this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
 
       BrowserWindow.getAllWindows().forEach(window => {
         if (!window.isDestroyed()) {

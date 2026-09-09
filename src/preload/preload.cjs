@@ -34,6 +34,8 @@ const ALLOWED_INVOKE_CHANNELS = [
   'app:get-version',
   'app:get-platform',
   'app:open-external',
+  'app:get-startup-setting',
+  'app:set-startup-setting',
 
   'auth:login',
   'auth:logout',
@@ -261,6 +263,12 @@ contextBridge.exposeInMainWorld(
         'auth:get-status',
       );
     },
+
+    getStartupSetting: () => invoke('app:get-startup-setting'),
+
+    setStartupSetting: (enabled) => invoke('app:set-startup-setting', {
+      enabled: Boolean(enabled),
+    }),
 
     getSavedCredentials: () => {
       return invoke('auth:get-saved-credentials');

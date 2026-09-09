@@ -1,11 +1,16 @@
 export function isNetworkError(error) {
+  const status = Number(error?.response?.status);
   return (
     !error?.response ||
     error?.code === 'ERR_NETWORK' ||
     error?.code === 'ECONNABORTED' ||
     error?.code === 'ETIMEDOUT' ||
     error?.code === 'ENOTFOUND' ||
-    error?.code === 'ECONNREFUSED'
+    error?.code === 'ECONNREFUSED' ||
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500
   );
 }
 
@@ -33,6 +38,15 @@ export function formatDuration(seconds) {
   return [hours, minutes, remainingSeconds]
     .map(value => String(value).padStart(2, '0'))
     .join(':');
+}
+
+export function calculateElapsedSeconds(startTime, now = Date.now()) {
+  const startMs = startTime instanceof Date
+    ? startTime.getTime()
+    : new Date(startTime).getTime();
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(startMs) || !Number.isFinite(nowMs)) return 0;
+  return Math.max(0, Math.floor((nowMs - startMs) / 1000));
 }
 
 function normalizeMessage(value) {

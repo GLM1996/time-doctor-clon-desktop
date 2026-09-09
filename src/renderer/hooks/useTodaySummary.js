@@ -29,7 +29,11 @@ export default function useTodaySummary({
 
       const nextDate = result?.data?.date || null;
       const sameDay = Boolean(nextDate && summaryDateRef.current === nextDate);
-      const nextTotal = normalizeNonNegativeInteger(result?.data?.totalDuration);
+      // La interfaz suma el contador vivo por separado. Usar el subtotal cerrado
+      // evita duplicar la sesión activa que el backend incluye en totalDuration.
+      const nextTotal = normalizeNonNegativeInteger(
+        result?.data?.closedDuration ?? result?.data?.totalDuration,
+      );
       const nextSessionCount = normalizeNonNegativeInteger(result?.data?.sessionCount);
 
       setTotal((current) => sameDay ? Math.max(current, nextTotal) : nextTotal);

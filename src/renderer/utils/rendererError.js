@@ -20,6 +20,10 @@ export function getRendererErrorMessage(error, fallback) {
     return "No fue posible conectarse con el servidor. Verifica tu conexión a internet.";
   }
   const raw = error?.response?.data?.message || error?.message;
+  const status = Number(error?.response?.status) || Number(String(raw || "").match(/status code\s+(\d{3})/i)?.[1]);
+  if (status >= 500) {
+    return `El servicio no está disponible temporalmente (código ${status}). Intenta nuevamente en unos minutos.`;
+  }
   if (typeof raw !== "string" || !raw.trim() || INTERNAL_PATTERN.test(raw)) return fallback;
   return sanitizeRendererText(raw, 300) || fallback;
 }

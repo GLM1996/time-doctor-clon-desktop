@@ -2,7 +2,7 @@ import { app, BrowserWindow, session } from 'electron';
 import { createMainWindow } from './window.js';
 import { registerIpcHandlers } from './ipc/handlers.js';
 import logger from './utils/logger.js';
-import { authStore } from './services/store.js';
+import { appPreferenceStore, authStore } from './services/store.js';
 import apiClient from './services/apiClient.js';
 import timerService from './services/timerService.js';
 import trayService from './services/trayService.js';
@@ -16,6 +16,7 @@ import autoUpdateService from './services/autoUpdateService.js'; // 👇 NUEVO
 import activityService from './services/activityService.js';
 import browserDomainBridge from './services/browserDomainBridge.js';
 import windowsBrowserUrlService from './services/windowsBrowserUrlService.js';
+import windowsStartupService from './services/windowsStartupService.js';
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -80,6 +81,7 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     crashReporterService.start();
+    windowsStartupService.setEnabled(appPreferenceStore.getStartWithWindows());
     if (app.isPackaged) {
       session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
         callback({

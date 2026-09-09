@@ -212,6 +212,14 @@ export const credentialStore = {
   },
 };
 
+export const appPreferenceStore = {
+  getStartWithWindows: () => store.get('settings', {})?.startWithWindows !== false,
+  setStartWithWindows: (enabled) => {
+    const settings = store.get('settings', {});
+    store.set('settings', { ...settings, startWithWindows: enabled === true });
+  },
+};
+
 export const updateHealthStore = {
   get: () => store.get('updateHealth', {}),
   setPending: (data) => store.set('updateHealth', { ...data, status: 'pending', attempts: 0 }),
