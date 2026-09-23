@@ -4,7 +4,7 @@ function TimeControlPanel({
   activeBreak,
   actionDisabled,
   breakTypes,
-  breakRemainingSeconds,
+  breakElapsedSeconds,
   currentTime,
   isLoading,
   isRunning,
@@ -85,7 +85,7 @@ function TimeControlPanel({
             {isLoading
               ? loadingText
               : activeBreak
-                ? `En pausa${activeBreak.type?.name ? ` · ${activeBreak.type.name}` : ""} · ${formatBreakRemaining(breakRemainingSeconds)}`
+                ? `En pausa${activeBreak.type?.name ? ` · ${activeBreak.type.name}` : ""} · ${formatBreakElapsed(breakElapsedSeconds)}`
                 : isRunning
                   ? "Seguimiento activo"
                   : "Listo para comenzar"}
@@ -143,9 +143,9 @@ function formatAccessibleTime(value) {
   return `${hours} horas, ${minutes} minutos y ${seconds} segundos`;
 }
 
-function formatBreakRemaining(seconds) {
+function formatBreakElapsed(seconds) {
   const safe = Math.max(0, Number(seconds) || 0);
   const minutes = Math.floor(safe / 60);
   const remaining = Math.floor(safe % 60);
-  return `${minutes}:${String(remaining).padStart(2, "0")} restantes`;
+  return `${minutes}:${String(remaining).padStart(2, "0")} transcurridos`;
 }

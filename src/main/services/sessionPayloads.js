@@ -45,6 +45,7 @@ export function buildPendingOfflineSession({
   notes,
   deviceInfo,
   workSelection,
+  activity,
 }) {
   return {
     localId: sessionId,
@@ -54,6 +55,10 @@ export function buildPendingOfflineSession({
     reason,
     notes: notes || null,
     deviceInfo: deviceInfo || null,
+    activeTime: normalizeDuration(activity?.activeTime),
+    idleTime: normalizeDuration(activity?.idleTime),
+    pausedTime: normalizeDuration(activity?.pausedTime),
+    activitySnapshots: normalizeDuration(activity?.activitySnapshots),
     ...buildWorkSelection(workSelection),
     createdAt: toIsoString(endTime),
   };

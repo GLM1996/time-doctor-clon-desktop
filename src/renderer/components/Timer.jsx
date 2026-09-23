@@ -28,7 +28,7 @@ function Timer() {
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [activeBreak, setActiveBreak] = useState(null);
-  const [breakRemainingSeconds, setBreakRemainingSeconds] = useState(0);
+  const [breakElapsedSeconds, setBreakElapsedSeconds] = useState(0);
 
   const {
     dismiss: dismissUpdate,
@@ -75,11 +75,21 @@ function Timer() {
   }, []);
 
   useEffect(() => {
-    if (!activeBreak?.expiresAt) {
-      setBreakRemainingSeconds(0);
+    if (!activeBreak) {
+      setBreakElapsedSeconds(0);
       return undefined;
     }
-    const update = () => setBreakRemainingSeconds(Math.max(0, Math.ceil((new Date(activeBreak.expiresAt).getTime() - Date.now()) / 1000)));
+    const explicitStart = new Date(activeBreak.startTime).getTime();
+    const expiresAt = new Date(activeBreak.expiresAt).getTime();
+    const maxMinutes = Number(activeBreak.type?.maxMinutes) || 0;
+    const startTime = Number.isFinite(explicitStart)
+      ? explicitStart
+      : Number.isFinite(expiresAt) && maxMinutes > 0
+        ? expiresAt - maxMinutes * 60_000
+        : Date.now();
+    const update = () => setBreakElapsedSeconds(
+      Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
+    );
     update();
     const interval = window.setInterval(update, 1000);
     return () => window.clearInterval(interval);
@@ -166,7 +176,7 @@ function Timer() {
           activeBreak={activeBreak}
           actionDisabled={actionDisabled}
           breakTypes={breakTypes}
-          breakRemainingSeconds={breakRemainingSeconds}
+          breakElapsedSeconds={breakElapsedSeconds}
           currentTime={formatTime(currentTime)}
           isLoading={isLoading}
           isRunning={isRunning}

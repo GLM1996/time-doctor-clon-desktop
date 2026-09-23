@@ -46,7 +46,9 @@ export default function useBreakControl({
 
   const toggleBreak = useCallback(
     async (typeId) => {
-      if (operationRef.current || isLoading || !apiAvailable) return;
+      // Una pausa activa puede finalizarse sin conexión; el proceso principal
+      // conserva el cierre y lo sincroniza cuando regrese Internet.
+      if (operationRef.current || isLoading || (!apiAvailable && !activeBreak)) return;
       if (!activeBreak && !typeId) {
         setError("Selecciona un tipo de pausa antes de continuar.");
         return;

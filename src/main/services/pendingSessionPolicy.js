@@ -10,7 +10,11 @@ export function isPendingSessionReady(pending, now = Date.now()) {
 
 export function getPendingSessionKey(pending) {
   const type = pending?.type || 'offline-session';
-  const identifier = type === 'stop-existing' ? pending?.sessionId : pending?.localId;
+  const identifier = type === 'stop-existing'
+    ? pending?.sessionId
+    : type === 'stop-break'
+      ? pending?.breakId
+      : pending?.localId;
   return identifier ? `${type}:${identifier}` : null;
 }
 
@@ -22,11 +26,19 @@ export function buildStopSessionPayload(pending) {
   return pickDefined(pending, ['reason', 'notes', 'endTime', 'duration']);
 }
 
+export function buildStopBreakPayload(pending) {
+  return pickDefined(pending, ['endedAt']);
+}
+
 export function buildOfflineSessionPayload(pending) {
   return pickDefined(pending, [
     'startTime',
     'endTime',
     'duration',
+    'activeTime',
+    'idleTime',
+    'pausedTime',
+    'activitySnapshots',
     'reason',
     'notes',
     'deviceInfo',

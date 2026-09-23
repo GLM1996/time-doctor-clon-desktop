@@ -20,6 +20,7 @@ import {
 import { pruneOfflineQueue, reconcileQueueAfterProcessing } from './offlineQueuePolicy.js';
 import {
   buildOfflineSessionPayload,
+  buildStopBreakPayload,
   buildStopSessionPayload,
   classifyPendingSessionError,
   getRemoteSessionId,
@@ -231,7 +232,23 @@ class TimerService {
     // Nunca adoptar una sesión que pertenece claramente a otro equipo.
     if (remoteHostname && localHostname && remoteHostname !== localHostname) return false;
 
-    const startTime = new Date(session.startTime);
+    const previousStartTime = new Date(session.startTime);
+    if (Number.isNaN(previousStartTime.getTime())) return false;
+
+    const response = await apiClient.post('/sessions', {
+      resumeSessionId: String(session._id),
+      deviceInfo: localDevice,
+      ...buildWorkSelection({
+        projectId: session.project?._id || session.project || null,
+        taskId: session.task?._id || session.task || null,
+      }),
+    });
+    const resumedSession = response.data?.data;
+    if (!response.data?.success || !resumedSession?._id || !resumedSession?.startTime) {
+      throw new Error(response.data?.message || 'No se pudo reanudar la sesión anterior.');
+    }
+
+    const startTime = new Date(resumedSession.startTime);
     if (Number.isNaN(startTime.getTime())) return false;
 
     const config = await this._loadConfig();
@@ -240,14 +257,14 @@ class TimerService {
     this._cleanupIntervals();
     this.currentConfig = settings;
     this.currentDeviceInfo = localDevice;
-    this.sessionId = String(session._id);
+    this.sessionId = String(resumedSession._id);
     this.startTime = startTime;
     this.elapsedSeconds = calculateElapsedSeconds(startTime);
     this.isRunning = true;
     this.isOffline = false;
     this.workSelection = buildWorkSelection({
-      projectId: session.project?._id || session.project || null,
-      taskId: session.task?._id || session.task || null,
+      projectId: resumedSession.project?._id || resumedSession.project || null,
+      taskId: resumedSession.task?._id || resumedSession.task || null,
     });
 
     configService.setTrackingActive(true);
@@ -257,18 +274,31 @@ class TimerService {
     configService.startSync();
     this._notifyStatusChange();
 
-    logger.info(`Sesión activa restaurada después del reinicio: ${this.sessionId}`);
+    logger.info(
+      `Sesión reanudada después del reinicio sin contabilizar el tiempo apagado: ${this.sessionId}`,
+    );
     return true;
   }
 
   async stopBreak() {
     if (!this.currentBreakId) throw new Error('No hay una pausa activa.');
-    const response = await apiClient.post(`/breaks/${this.currentBreakId}/stop`);
+    const breakId = this.currentBreakId;
+    const endedAt = new Date().toISOString();
+    let result;
+    try {
+      const response = await apiClient.post(`/breaks/${breakId}/stop`, { endedAt });
+      result = response.data.data;
+    } catch (error) {
+      if (!isNetworkError(error)) throw error;
+      this._queueBreakStop({ breakId, endedAt });
+      result = { _id: breakId, endTime: endedAt, status: 'ended', pendingSync: true };
+      logger.info(`Pausa finalizada sin conexión y guardada para sincronización: ${breakId}`);
+    }
     this._clearBreakExpiration();
     this.currentBreakId = null;
     this.currentBreakEndsAt = null;
     this._notifyStatusChange();
-    return response.data.data;
+    return result;
   }
 
   restoreBreak(activeBreak) {
@@ -348,6 +378,7 @@ class TimerService {
     const endTime = new Date();
     this.elapsedSeconds = calculateElapsedSeconds(startTime, endTime);
     const duration = this.elapsedSeconds;
+    const activitySnapshot = activityService.getSnapshot();
 
     try {
       logger.info(`🔴 Deteniendo sesión... Motivo: ${reason}`);
@@ -371,6 +402,7 @@ class TimerService {
           notes: cleanNotes,
           deviceInfo: this.currentDeviceInfo,
           workSelection: this.workSelection,
+          activity: activitySnapshot,
         }));
 
         queuedForSync = true;
@@ -542,6 +574,25 @@ class TimerService {
       }
 
       try {
+        if (pending.type === 'stop-break') {
+          await retryRequest(
+            async () => {
+              const response = await apiClient.post(
+                `/breaks/${pending.breakId}/stop`,
+                buildStopBreakPayload(pending),
+              );
+              if (!response.data?.success) {
+                throw new Error(response.data?.message || 'No se pudo sincronizar el cierre de la pausa');
+              }
+              return response;
+            },
+            { attempts: retryAttempts, isRetryable: isNetworkError },
+          );
+          successCount += 1;
+          logger.info(`Cierre de pausa pendiente sincronizado: ${pending.breakId}`);
+          continue;
+        }
+
         if (pending.type === 'stop-existing') {
           try {
             await retryRequest(
@@ -710,6 +761,7 @@ class TimerService {
         Math.floor((transitionTime.getTime() - offlineStartTime.getTime()) / 1000),
       ),
     );
+    const activitySnapshot = activityService.getSnapshot();
 
     const response = await apiClient.post('/sessions', {
       deviceInfo: this.currentDeviceInfo || {},
@@ -731,6 +783,7 @@ class TimerService {
         notes: 'Tramo offline finalizado automáticamente al recuperar conexión',
         deviceInfo: this.currentDeviceInfo,
         workSelection: this.workSelection,
+        activity: activitySnapshot,
       }));
     }
 
@@ -755,6 +808,7 @@ class TimerService {
       if (this.isRunning && this.startTime) {
         this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
       }
+      const activitySnapshot = activityService.getSnapshot();
       this._stopServices();
       if (this.isRunning && this.sessionId) {
         const endTime = new Date();
@@ -773,6 +827,7 @@ class TimerService {
               notes: null,
               deviceInfo: this.currentDeviceInfo,
               workSelection: this.workSelection,
+              activity: activitySnapshot,
             }));
           }
         } else {
@@ -868,6 +923,22 @@ class TimerService {
       });
     }
 
+    this._savePendingSessions();
+  }
+
+  _queueBreakStop(operation) {
+    const alreadyExists = this.pendingSessions.some(
+      pending => pending.type === 'stop-break' && pending.breakId === operation.breakId
+    );
+    if (!alreadyExists) {
+      this.pendingSessions.push({
+        type: 'stop-break',
+        retryCount: 0,
+        nextRetryAt: null,
+        createdAt: new Date().toISOString(),
+        ...operation,
+      });
+    }
     this._savePendingSessions();
   }
 

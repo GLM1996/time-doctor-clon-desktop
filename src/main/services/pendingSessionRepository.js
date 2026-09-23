@@ -33,7 +33,11 @@ export function normalizePendingSessions(value) {
 
   const byKey = new Map();
   normalized.forEach(item => {
-    const identifier = item.type === 'stop-existing' ? item.sessionId : item.localId;
+    const identifier = item.type === 'stop-existing'
+      ? item.sessionId
+      : item.type === 'stop-break'
+        ? item.breakId
+        : item.localId;
     byKey.set(`${item.type}:${identifier}`, item);
   });
   return [...byKey.values()];
@@ -49,14 +53,16 @@ function normalizePendingSession(item) {
   }
 
   if (type === 'stop-existing' && !validIdentifier(item.sessionId)) return null;
+  if (type === 'stop-break' && !validIdentifier(item.breakId)) return null;
   if (type === 'offline-session' && !validIdentifier(localId)) return null;
-  if (!['stop-existing', 'offline-session'].includes(type)) return null;
+  if (!['stop-existing', 'stop-break', 'offline-session'].includes(type)) return null;
 
   return {
     ...item,
     type,
     ...(type === 'offline-session' ? { localId: String(localId).trim() } : {}),
     ...(type === 'stop-existing' ? { sessionId: String(item.sessionId).trim() } : {}),
+    ...(type === 'stop-break' ? { breakId: String(item.breakId).trim() } : {}),
     retryCount: Math.min(1000, Math.max(0, Math.floor(Number(item.retryCount) || 0))),
     nextRetryAt: normalizeRetryAt(item.nextRetryAt),
   };

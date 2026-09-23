@@ -41,10 +41,15 @@ test('los cierres pendientes comparten duración y fecha normalizadas', () => {
     duration: 25.9,
     reason: 'system',
     notes: null,
+    activity: { activeTime: 18.9, idleTime: 7.8, pausedTime: 2, activitySnapshots: 3 },
   };
   const offline = buildPendingOfflineSession(input);
   const existing = buildPendingExistingStop(input);
   assert.equal(offline.duration, 25);
+  assert.equal(offline.activeTime, 18);
+  assert.equal(offline.idleTime, 7);
+  assert.equal(offline.pausedTime, 2);
+  assert.equal(offline.activitySnapshots, 3);
   assert.equal(existing.duration, 25);
   assert.equal(offline.createdAt, existing.createdAt);
 });
