@@ -1,4 +1,5 @@
 import { activeWindow } from 'get-windows';
+import { performance } from 'node:perf_hooks';
 import { isDomainExcluded, normalizeActiveDomain } from './activeDomain.js';
 import { powerMonitor, BrowserWindow, app } from 'electron';
 import logger from '../utils/logger.js';
@@ -104,7 +105,8 @@ class ActivityService {
 
     this.cumulativeActiveTime = 0;
     this.cumulativeIdleTime = 0;
-    this.lastTickTime = Date.now();
+    // Monotonic time is unaffected by manual or automatic Windows clock changes.
+    this.lastTickTime = performance.now();
 
     this.systemIdleTime = 0;
     this.idleStartTime = null;
@@ -220,7 +222,7 @@ class ActivityService {
       return;
     }
 
-    const now = Date.now();
+    const now = performance.now();
 
     if (!this.lastTickTime) {
       this.lastTickTime = now;

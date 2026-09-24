@@ -1,6 +1,6 @@
 {
   "name": "log-your-time",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Aplicación de escritorio para monitoreo de tiempo",
   "main": "./out/main/index.js",
   "type": "module",

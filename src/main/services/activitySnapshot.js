@@ -45,20 +45,24 @@ export function toActivityApiPayload(
   snapshot,
   { defaultIntervalSeconds = 60, clientEventId = randomUUID() } = {},
 ) {
+  const intervalSeconds = integerBetween(
+    snapshot?.intervalSeconds,
+    1,
+    120,
+    integerBetween(defaultIntervalSeconds, 1, 120, 60),
+  );
+  const activityPercentage = percentage(snapshot?.activityPercentage);
+
   return {
     sessionId: snapshot?.sessionId || null,
     clientEventId: snapshot?.clientEventId || clientEventId,
     timestamp: snapshot?.timestamp || new Date().toISOString(),
-    activityPercentage: percentage(snapshot?.activityPercentage),
+    activityPercentage,
     keyboardEvents: nonNegativeInteger(snapshot?.keyboardEvents),
     mouseEvents: nonNegativeInteger(snapshot?.mouseEvents),
-    idleTime: nonNegativeInteger(snapshot?.idleTime),
-    intervalSeconds: integerBetween(
-      snapshot?.intervalSeconds,
-      1,
-      120,
-      integerBetween(defaultIntervalSeconds, 1, 120, 60),
-    ),
+    // This API field represents only this interval, never the cumulative counter.
+    idleTime: Math.round(intervalSeconds * ((100 - activityPercentage) / 100)),
+    intervalSeconds,
     status: snapshot?.status || 'active',
     activeWindow: normalizeText(snapshot?.activeWindow),
     activeApp: normalizeText(snapshot?.activeApp),
