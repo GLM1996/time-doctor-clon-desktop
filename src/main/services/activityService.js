@@ -468,16 +468,69 @@ class ActivityService {
         return;
       }
 
-      window.show();
-      window.focus();
+      const wasMinimized = window.isMinimized();
+      const wasVisible = window.isVisible();
+
+      logger.info(
+        `Aviso de inactividad: mostrando ventana ` +
+        `(visible=${wasVisible}, minimizada=${wasMinimized}, enfocada=${window.isFocused()}).`
+      );
+
+      if (wasMinimized) {
+        window.restore();
+      }
+
+      // Subimos la ventana antes de mostrarla. En Windows, focus() puede ser
+      // rechazado cuando otra aplicacion (por ejemplo Zoom a pantalla completa)
+      // tiene el primer plano, por eso reforzamos tambien el orden Z.
       window.setAlwaysOnTop(true, 'screen-saver');
+      window.show();
+
+      if (!wasVisible || wasMinimized) {
+        window.center();
+      }
+
+      const requestForeground = () => {
+        if (window.isDestroyed()) {
+          return;
+        }
+
+        if (window.isMinimized()) {
+          window.restore();
+        }
+
+        window.show();
+        window.moveTop();
+        window.focus();
+      };
+
+      requestForeground();
       window.flashFrame(true);
+
+      // Windows limita el robo de foco entre procesos. Dos reintentos cortos
+      // cubren el cambio de estado de una ventana maximizada o en fullscreen.
+      [250, 1000].forEach(delay => {
+        setTimeout(requestForeground, delay).unref?.();
+      });
 
       setTimeout(() => {
         if (!window.isDestroyed()) {
-          window.setAlwaysOnTop(false);
+          logger.info(
+            `Aviso de inactividad: estado final de ventana ` +
+            `(visible=${window.isVisible()}, minimizada=${window.isMinimized()}, ` +
+            `enfocada=${window.isFocused()}, sobre-otras=${window.isAlwaysOnTop()}).`
+          );
         }
-      }, 5000);
+      }, 1500).unref?.();
+
+      // El modo superior es temporal para no dejar LogYourTime por encima de
+      // otras aplicaciones una vez que el usuario ya pudo ver la advertencia.
+      setTimeout(() => {
+        if (!window.isDestroyed()) {
+          window.setAlwaysOnTop(false);
+          window.flashFrame(false);
+        }
+      }, 15000).unref?.();
     });
   }
 
