@@ -40,9 +40,12 @@ export default function useBreakControl({
   }, [apiAvailable, electronAPI, isRunning, setActiveBreak]);
 
   useEffect(() => {
-    if (!apiAvailable || typeof electronAPI.events?.onBreakEnded !== "function") return;
+    // Este evento es local (main -> renderer) y debe escucharse incluso cuando
+    // el backend no está disponible. De lo contrario una pausa vencida queda
+    // visualmente congelada hasta que regresa Internet.
+    if (typeof electronAPI.events?.onBreakEnded !== "function") return;
     return electronAPI.events.onBreakEnded(() => setActiveBreak(null));
-  }, [apiAvailable, electronAPI, setActiveBreak]);
+  }, [electronAPI, setActiveBreak]);
 
   const toggleBreak = useCallback(
     async (typeId) => {

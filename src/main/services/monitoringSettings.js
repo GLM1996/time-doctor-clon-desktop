@@ -2,9 +2,8 @@ const DEFAULTS = Object.freeze({
   screenshotIntervalMinutes: 5,
   screenshotQuality: 80,
   sampleIntervalSeconds: 60,
-  idleThresholdMinutes: 5,
   lowActivityThreshold: 30,
-  autoCloseInactiveMinutes: 10,
+  autoCloseInactiveMinutes: 5,
   maxOfflineDays: 7,
 });
 
@@ -37,12 +36,6 @@ export function normalizeMonitoringSettings(settings = {}) {
         600,
         DEFAULTS.sampleIntervalSeconds,
       ),
-      idleThresholdMinutes: integerBetween(
-        activity.idleThresholdMinutes,
-        1,
-        60,
-        DEFAULTS.idleThresholdMinutes,
-      ),
       lowActivityThreshold: integerBetween(
         activity.lowActivityThreshold,
         0,
@@ -53,7 +46,7 @@ export function normalizeMonitoringSettings(settings = {}) {
       excludedDomains: Array.isArray(activity.excludedDomains) ? activity.excludedDomains : [],
       autoCloseInactiveMinutes: integerBetween(
         sessions.autoCloseInactiveMinutes,
-        5,
+        2,
         120,
         DEFAULTS.autoCloseInactiveMinutes,
       ),

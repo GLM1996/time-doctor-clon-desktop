@@ -286,7 +286,9 @@ class TimerService {
     const endedAt = new Date().toISOString();
     let result;
     try {
-      const response = await apiClient.post(`/breaks/${breakId}/stop`, { endedAt });
+      // En línea, el backend es la fuente de tiempo. No enviamos la hora de
+      // Windows porque puede estar atrasada o haber sido modificada.
+      const response = await apiClient.post(`/breaks/${breakId}/stop`, {});
       result = response.data.data;
     } catch (error) {
       if (!isNetworkError(error)) throw error;
@@ -323,15 +325,35 @@ class TimerService {
 
   async _handleBreakExpired(activeBreak) {
     if (String(this.currentBreakId) !== String(activeBreak?._id)) return;
-    try {
-      await apiClient.post(`/breaks/${activeBreak._id}/stop`);
-    } catch (error) {
-      if (error.response?.status !== 404) logger.warn(`No se pudo confirmar el fin de la pausa: ${error.message}`);
-    }
+
+    const endedAtCandidate = new Date(activeBreak.expiresAt);
+    const endedAt = Number.isNaN(endedAtCandidate.getTime())
+      ? new Date().toISOString()
+      : endedAtCandidate.toISOString();
+
+    // Liberamos primero el estado local para que la UI nunca dependa de la
+    // latencia o disponibilidad del backend al vencer una pausa.
     this._clearBreakExpiration();
     this.currentBreakId = null;
     this.currentBreakEndsAt = null;
     this._notifyStatusChange();
+    this._notifyUI(IPC_CHANNELS.EVENT_BREAK_ENDED, {
+      id: activeBreak._id,
+      reason: 'expired',
+      endedAt,
+    });
+
+    try {
+      await apiClient.post(`/breaks/${activeBreak._id}/stop`, { endedAt });
+    } catch (error) {
+      if (isNetworkError(error)) {
+        this._queueBreakStop({ breakId: activeBreak._id, endedAt });
+        logger.info(`Cierre de pausa vencida guardado para sincronización: ${activeBreak._id}`);
+      } else if (error.response?.status !== 404) {
+        logger.warn(`No se pudo confirmar el fin de la pausa: ${error.message}`);
+      }
+    }
+
     const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
     if (window) {
       if (window.isMinimized()) window.restore();
@@ -343,7 +365,6 @@ class TimerService {
     if (Notification.isSupported()) {
       new Notification({ title: 'Pausa finalizada', body: 'Tu pausa terminó. Pulsa Play para continuar trabajando.' }).show();
     }
-    this._notifyUI(IPC_CHANNELS.EVENT_BREAK_ENDED, { id: activeBreak._id, reason: 'expired' });
   }
 
   async stop(reason = 'manual', notes = '') {

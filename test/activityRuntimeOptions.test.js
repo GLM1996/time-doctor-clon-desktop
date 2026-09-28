@@ -5,13 +5,13 @@ import { normalizeActivityRuntimeOptions } from '../src/main/services/activityRu
 test('las opciones runtime usan valores predeterminados coherentes', () => {
   const result = normalizeActivityRuntimeOptions();
   assert.equal(result.reportIntervalSeconds, 60);
-  assert.equal(result.idleThresholdSeconds, 300);
-  assert.equal(result.autoCloseInactiveSeconds, 600);
-  assert.equal(result.idleWarningSeconds, 480);
+  assert.equal(result.idleThresholdSeconds, 240);
+  assert.equal(result.autoCloseInactiveSeconds, 300);
+  assert.equal(result.idleWarningSeconds, 240);
   assert.equal(result.lowActivityThreshold, 30);
 });
 
-test('la advertencia nunca ocurre antes del umbral de inactividad', () => {
+test('la advertencia ocurre un minuto antes del cierre e ignora el umbral legacy', () => {
   const result = normalizeActivityRuntimeOptions({
     idleThresholdMinutes: 9,
     autoCloseInactiveMinutes: 10,
@@ -43,7 +43,7 @@ test('las opciones runtime aplican los limites maximos del servidor', () => {
     maxOfflineDays: 90,
   });
   assert.equal(result.reportIntervalSeconds, 600);
-  assert.equal(result.idleThresholdSeconds, 3600);
+  assert.equal(result.idleThresholdSeconds, 7140);
   assert.equal(result.autoCloseInactiveSeconds, 7200);
   assert.equal(result.maxOfflineDays, 30);
 });

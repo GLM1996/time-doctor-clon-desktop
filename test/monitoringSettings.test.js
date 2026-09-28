@@ -7,7 +7,7 @@ test('la configuración de monitoreo aplica valores predeterminados seguros', ()
   assert.equal(result.screenshots.intervalMinutes, 5);
   assert.equal(result.screenshots.quality, 80);
   assert.equal(result.activity.sampleIntervalSeconds, 60);
-  assert.equal(result.activity.autoCloseInactiveMinutes, 10);
+  assert.equal(result.activity.autoCloseInactiveMinutes, 5);
   assert.equal(result.offline.maxOfflineDays, 7);
 });
 
@@ -22,7 +22,7 @@ test('la configuración limita intervalos, calidad y umbrales inválidos', () =>
   assert.equal(result.screenshots.quality, 100);
   assert.equal(result.activity.sampleIntervalSeconds, 10);
   assert.equal(result.activity.lowActivityThreshold, 0);
-  assert.equal(result.activity.autoCloseInactiveMinutes, 5);
+  assert.equal(result.activity.autoCloseInactiveMinutes, 2);
   assert.equal(result.offline.maxOfflineDays, 1);
 });
 
@@ -35,7 +35,6 @@ test("limita configuraciones legacy a los máximos aceptados por el backend", ()
   });
   assert.equal(result.screenshots.intervalMinutes, 60);
   assert.equal(result.activity.sampleIntervalSeconds, 600);
-  assert.equal(result.activity.idleThresholdMinutes, 60);
   assert.equal(result.activity.autoCloseInactiveMinutes, 120);
   assert.equal(result.offline.maxOfflineDays, 30);
   assert.equal(result.screenshots.maxWidth, 1920);

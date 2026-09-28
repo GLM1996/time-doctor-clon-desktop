@@ -51,9 +51,9 @@ class ActivityService {
     this.reportIntervalId = null;
 
     this.reportIntervalSeconds = 60;
-    this.idleThresholdSeconds = 5 * 60;
-    this.autoCloseInactiveSeconds = 10 * 60;
-    this.idleWarningSeconds = 8 * 60;
+    this.idleThresholdSeconds = 4 * 60;
+    this.autoCloseInactiveSeconds = 5 * 60;
+    this.idleWarningSeconds = 4 * 60;
     this.lowActivityThreshold = 30;
     this.maxOfflineDays = 7;
     this.maxQueueSize = 10000;

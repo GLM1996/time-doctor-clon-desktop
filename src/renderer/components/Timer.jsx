@@ -80,6 +80,7 @@ function Timer() {
       return undefined;
     }
     const explicitStart = new Date(activeBreak.startTime).getTime();
+    const serverNow = new Date(activeBreak.serverNow).getTime();
     const expiresAt = new Date(activeBreak.expiresAt).getTime();
     const maxMinutes = Number(activeBreak.type?.maxMinutes) || 0;
     const startTime = Number.isFinite(explicitStart)
@@ -87,8 +88,12 @@ function Timer() {
       : Number.isFinite(expiresAt) && maxMinutes > 0
         ? expiresAt - maxMinutes * 60_000
         : Date.now();
+    const observedAt = performance.now();
+    const elapsedAtObservation = Number.isFinite(serverNow)
+      ? Math.max(0, Math.floor((serverNow - startTime) / 1000))
+      : Math.max(0, Math.floor((Date.now() - startTime) / 1000));
     const update = () => setBreakElapsedSeconds(
-      Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
+      elapsedAtObservation + Math.max(0, Math.floor((performance.now() - observedAt) / 1000)),
     );
     update();
     const interval = window.setInterval(update, 1000);

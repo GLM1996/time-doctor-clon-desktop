@@ -209,12 +209,11 @@ class ConfigService {
             activity: {
                 monitoringEnabled: true,
                 sampleIntervalSeconds: 60,
-                idleThresholdMinutes: 5,
                 lowActivityThreshold: 30,
                 trackActiveWindow: true
             },
             sessions: {
-                autoCloseInactiveMinutes: 10,
+                autoCloseInactiveMinutes: 5,
                 maxConcurrentSessions: 1,
                 concurrentSessionPolicy: 'replace_previous',
                 requireNotesOnStop: false
@@ -267,7 +266,8 @@ class ConfigService {
     }
 
     getIdleThreshold() {
-        return this.config?.activity?.idleThresholdMinutes || 5;
+        const closeMinutes = this.config?.sessions?.autoCloseInactiveMinutes || 5;
+        return Math.max(1, closeMinutes - 1);
     }
 
     getTimezone() {

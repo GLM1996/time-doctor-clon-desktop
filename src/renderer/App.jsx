@@ -4,7 +4,9 @@ import { getRendererErrorMessage, reportRendererError } from "./utils/rendererEr
 
 import {
   AlertCircle,
+  CheckCircle2,
   Clock3,
+  Download,
   ExternalLink,
   LayoutDashboard,
   Loader2,
@@ -12,11 +14,14 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Power,
+  RefreshCw,
   Settings,
   UserRound,
 } from "lucide-react";
 
 import StatusBadge from "./components/StatusBadge.jsx";
+import { UpdateNotice } from "./components/TimerNotices.jsx";
+import useAutoUpdater from "./hooks/useAutoUpdater.js";
 
 const Login = React.lazy(() => import("./pages/Login.jsx"));
 const Timer = React.lazy(() => import("./components/Timer.jsx"));
@@ -709,6 +714,16 @@ function PreferencesView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const {
+    checkMessage,
+    checkFailed,
+    checkNow,
+    currentVersion,
+    dismiss: dismissUpdate,
+    isChecking,
+    notice: updateNotice,
+    startUpdate,
+  } = useAutoUpdater(electronAPI?.update);
 
   useEffect(() => {
     let active = true;
@@ -760,7 +775,7 @@ function PreferencesView() {
           </div>
         </header>
 
-        <div className="p-5 sm:p-6">
+        <div className="space-y-4 p-5 sm:p-6">
           <div className="flex items-start justify-between gap-5 rounded-2xl border border-[#ded9cd] bg-white px-4 py-4">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-[#3f423b]">Iniciar con Windows</p>
@@ -780,7 +795,54 @@ function PreferencesView() {
             </button>
           </div>
 
-          {message && <p className="mt-4 rounded-xl border border-[#dfd5c6] bg-[#f5f1e9] px-4 py-3 text-xs text-[#62655d]">{message}</p>}
+          <div className="rounded-2xl border border-[#ded9cd] bg-white px-4 py-4">
+            <div className="flex items-start justify-between gap-5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Download className="h-4 w-4 text-[#76501f]" strokeWidth={1.8} aria-hidden="true" />
+                  <p className="text-sm font-semibold text-[#3f423b]">Actualizaciones</p>
+                </div>
+                <p className="mt-1 max-w-md text-xs leading-5 text-[#777970]">
+                  La aplicación busca nuevas versiones cada hora. También puedes comprobarlas cuando desees.
+                </p>
+                <p className="mt-2 text-[10px] font-medium text-[#8a8c84]">
+                  Versión instalada: v{currentVersion || "—"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={checkNow}
+                disabled={isChecking}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#d3c7b7] bg-[#f8f4ed] px-4 text-xs font-semibold text-[#55452f] transition-colors hover:bg-[#efe5d6] focus:outline-none focus:ring-4 focus:ring-[#986126]/15 disabled:cursor-wait disabled:opacity-60"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isChecking ? "animate-spin" : ""}`}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
+                {isChecking ? "Buscando..." : "Buscar actualizaciones"}
+              </button>
+            </div>
+
+            {checkMessage && !updateNotice && (
+              <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#dfd5c6] bg-[#f5f1e9] px-3.5 py-3 text-xs text-[#62655d]" role="status">
+                {checkFailed ? (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#a95444]" strokeWidth={1.8} aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#65765b]" strokeWidth={1.8} aria-hidden="true" />
+                )}
+                <span>{checkMessage}</span>
+              </div>
+            )}
+          </div>
+
+          <UpdateNotice
+            notice={updateNotice}
+            onDismiss={dismissUpdate}
+            onUpdate={startUpdate}
+          />
+
+          {message && <p className="rounded-xl border border-[#dfd5c6] bg-[#f5f1e9] px-4 py-3 text-xs text-[#62655d]">{message}</p>}
         </div>
       </section>
     </div>

@@ -4,7 +4,7 @@ import { BrowserWindow, ipcMain, app } from 'electron';
 import logger from '../utils/logger.js';
 import { updateHealthStore } from './store.js';
 import { IPC_CHANNELS } from '../ipc/channels.js';
-import { normalizeDownloadProgress, normalizeUpdateCheckInterval } from './autoUpdatePolicy.js';
+import { isVersionNewer, normalizeDownloadProgress, normalizeUpdateCheckInterval } from './autoUpdatePolicy.js';
 
 const { autoUpdater } = updaterPackage;
 
@@ -34,6 +34,16 @@ class AutoUpdateService {
     autoUpdater.logger = logger;
 
     autoUpdater.on('update-available', (info) => {
+      const currentVersion = autoUpdater.currentVersion?.version || app.getVersion();
+      if (!isVersionNewer(info?.version, currentVersion)) {
+        this.updateAvailable = false;
+        this.updateDownloaded = false;
+        this.updateInfo = null;
+        this.downloadProgress = null;
+        this.isChecking = false;
+        this._notifyUI(IPC_CHANNELS.UPDATE_NOT_AVAILABLE, { version: currentVersion });
+        return;
+      }
       this.updateAvailable = true;
       this.updateDownloaded = false;
       this.updateInfo = info;
@@ -80,6 +90,8 @@ class AutoUpdateService {
       logger.error(`Error auto-update: ${error.message}`);
       this._notifyUI(IPC_CHANNELS.UPDATE_ERROR, {
         message: getFriendlyUpdateError(error),
+        version: this.updateInfo?.version || null,
+        hasKnownUpdate: Boolean(this.updateAvailable && this.updateInfo?.version),
       });
     });
   }

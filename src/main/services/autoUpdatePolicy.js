@@ -24,6 +24,23 @@ export function normalizeDownloadProgress(progress = {}) {
   };
 }
 
+export function isVersionNewer(candidate, current) {
+  const candidateParts = parseVersion(candidate);
+  const currentParts = parseVersion(current);
+  if (!candidateParts || !currentParts) return false;
+  for (let index = 0; index < 3; index += 1) {
+    if (candidateParts[index] !== currentParts[index]) {
+      return candidateParts[index] > currentParts[index];
+    }
+  }
+  return false;
+}
+
+function parseVersion(value) {
+  const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i);
+  return match ? match.slice(1, 4).map(Number) : null;
+}
+
 function finiteBetween(value, minimum, maximum, fallback) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;

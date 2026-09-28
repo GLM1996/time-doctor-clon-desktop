@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isVersionNewer,
   normalizeDownloadProgress,
   normalizeUpdateCheckInterval,
 } from '../src/main/services/autoUpdatePolicy.js';
@@ -18,4 +19,12 @@ test('normaliza el progreso antes de enviarlo a la interfaz', () => {
   }), {
     percent: 100, bytesPerSecond: 0, transferred: 0, total: 100,
   });
+});
+
+test('solo considera disponible una version semanticamente superior', () => {
+  assert.equal(isVersionNewer('1.2.5', '1.2.4'), true);
+  assert.equal(isVersionNewer('1.3.0', '1.2.4'), true);
+  assert.equal(isVersionNewer('1.2.4', '1.2.4'), false);
+  assert.equal(isVersionNewer('1.2.3', '1.2.4'), false);
+  assert.equal(isVersionNewer('', '1.2.4'), false);
 });
