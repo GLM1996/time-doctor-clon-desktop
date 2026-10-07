@@ -28,6 +28,35 @@ export default function useTimerSession({
   const [error, setError] = useState("");
   const [lastResult, setLastResult] = useState(null);
   const sessionClosingRef = useRef(false);
+  const elapsedRef = useRef(0);
+  const elapsedObservationRef = useRef({ seconds: 0, at: performance.now() });
+
+  const setObservedElapsed = useCallback((value, { allowDecrease = true } = {}) => {
+    const seconds = reconcileObservedElapsed(
+      elapsedRef.current,
+      value,
+      allowDecrease,
+    );
+    elapsedRef.current = seconds;
+    elapsedObservationRef.current = { seconds, at: performance.now() };
+    setElapsedSeconds(seconds);
+  }, []);
+
+  useEffect(() => {
+    if (!isRunning) return undefined;
+    const updateLocalClock = () => {
+      const observation = elapsedObservationRef.current;
+      const seconds = observation.seconds + Math.max(
+        0,
+        Math.floor((performance.now() - observation.at) / 1000),
+      );
+      elapsedRef.current = seconds;
+      setElapsedSeconds(seconds);
+    };
+    updateLocalClock();
+    const interval = window.setInterval(updateLocalClock, 250);
+    return () => window.clearInterval(interval);
+  }, [isRunning]);
 
   useEffect(() => {
     if (!apiAvailable) {
@@ -48,7 +77,7 @@ export default function useTimerSession({
         if (!active) return;
 
         setIsRunning(Boolean(status?.isRunning));
-        setElapsedSeconds(normalizeSeconds(status?.elapsedSeconds));
+        setObservedElapsed(status?.elapsedSeconds);
         if (status?.sync) setSyncStatus(status.sync);
         await loadTodayTotal();
       } catch (loadError) {
@@ -70,7 +99,7 @@ export default function useTimerSession({
     return () => {
       active = false;
     };
-  }, [apiAvailable, electronAPI, loadTodayTotal, setSyncStatus]);
+  }, [apiAvailable, electronAPI, loadTodayTotal, setObservedElapsed, setSyncStatus]);
 
   useEffect(() => {
     if (!apiAvailable) return undefined;
@@ -83,7 +112,7 @@ export default function useTimerSession({
       commitClosedSession(data.durationSeconds ?? data.duration);
       setIsRunning(false);
       setActiveBreak(null);
-      setElapsedSeconds(0);
+      setObservedElapsed(0);
       setIsLoading(false);
       setPendingAction("");
       clearTransientStates();
@@ -107,6 +136,7 @@ export default function useTimerSession({
     operationRef,
     setActiveBreak,
     setActivityStatus,
+    setObservedElapsed,
   ]);
 
   useEffect(() => {
@@ -114,12 +144,14 @@ export default function useTimerSession({
     return electronAPI.events.onTimerUpdate((data = {}) => {
       if (!mountedRef.current) return;
       setIsRunning(Boolean(data.isRunning));
-      setElapsedSeconds(normalizeSeconds(data.elapsedSeconds));
+      setObservedElapsed(data.elapsedSeconds, {
+        allowDecrease: !data.isRunning,
+      });
       if (data.refreshTodayTotal === true) {
         loadTodayTotal();
       }
     });
-  }, [apiAvailable, electronAPI, loadTodayTotal, mountedRef]);
+  }, [apiAvailable, electronAPI, loadTodayTotal, mountedRef, setObservedElapsed]);
 
   const start = useCallback(async () => {
     if (operationRef.current || isLoading || isRunning || !apiAvailable) return;
@@ -131,6 +163,8 @@ export default function useTimerSession({
     setLastResult(null);
     clearTransientStates();
     setActivityStatus(INITIAL_ACTIVITY_STATUS);
+    setObservedElapsed(0);
+    setIsRunning(true);
 
     try {
       const result = await electronAPI.startTimer({
@@ -141,10 +175,13 @@ export default function useTimerSession({
         throw new Error(result?.message || "No se pudo iniciar la sesión.");
       }
       if (!mountedRef.current) return;
-      setIsRunning(true);
-      setElapsedSeconds(normalizeSeconds(result?.data?.elapsedSeconds));
+      setObservedElapsed(result?.data?.elapsedSeconds, {
+        allowDecrease: false,
+      });
     } catch (startError) {
       reportRendererError("Error iniciando temporizador", startError);
+      setIsRunning(false);
+      setObservedElapsed(0);
       setError(getRendererErrorMessage(startError, "No fue posible iniciar la jornada."));
     } finally {
       operationRef.current = "";
@@ -163,6 +200,7 @@ export default function useTimerSession({
     operationRef,
     projectId,
     setActivityStatus,
+    setObservedElapsed,
     taskId,
   ]);
 
@@ -182,6 +220,7 @@ export default function useTimerSession({
     setIsLoading(true);
     setPendingAction("stop");
     setError("");
+    setIsRunning(false);
 
     try {
       const result = await electronAPI.stopTimer({ reason: "manual", notes: "" });
@@ -193,13 +232,15 @@ export default function useTimerSession({
       sessionClosingRef.current = false;
       operationRef.current = "";
       reportRendererError("Error deteniendo temporizador", stopError);
+      setObservedElapsed(elapsedRef.current);
+      setIsRunning(true);
       setError(getRendererErrorMessage(stopError, "No fue posible detener la jornada."));
       if (mountedRef.current) {
         setIsLoading(false);
         setPendingAction("");
       }
     }
-  }, [apiAvailable, electronAPI, isLoading, isRunning, mountedRef, operationRef]);
+  }, [apiAvailable, electronAPI, isLoading, isRunning, mountedRef, operationRef, setObservedElapsed]);
 
   return {
     elapsedSeconds,
@@ -214,6 +255,12 @@ export default function useTimerSession({
     start,
     stop,
   };
+}
+
+export function reconcileObservedElapsed(currentValue, reportedValue, allowDecrease = true) {
+  const currentSeconds = normalizeSeconds(currentValue);
+  const reportedSeconds = normalizeSeconds(reportedValue);
+  return allowDecrease ? reportedSeconds : Math.max(currentSeconds, reportedSeconds);
 }
 
 function normalizeSeconds(value) {

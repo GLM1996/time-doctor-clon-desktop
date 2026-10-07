@@ -153,7 +153,7 @@ function Timer() {
     projectId,
   });
 
-  const currentTime = todayTotal + (isRunning ? elapsedSeconds : 0);
+  const currentTime = todayTotal + (isRunning || pendingAction === "stop" ? elapsedSeconds : 0);
 
   const actionDisabled =
     isLoading ||
@@ -186,6 +186,7 @@ function Timer() {
           isLoading={isLoading}
           isRunning={isRunning}
           loadingText={getLoadingText(pendingAction)}
+          showPrimarySpinner={isLoading && !["start", "stop"].includes(pendingAction)}
           onBreakTypeChange={(event) => setSelectedBreakTypeId(event.target.value)}
           onBreakAction={() =>
             toggleBreak(activeBreak ? undefined : selectedBreakTypeId)

@@ -13,6 +13,7 @@ function TimeControlPanel({
   onBreakTypeChange,
   onPrimaryAction,
   selectedBreakTypeId,
+  showPrimarySpinner,
   todaySessions,
 }) {
   const primaryLabel = isRunning
@@ -52,7 +53,7 @@ function TimeControlPanel({
             title={primaryLabel}
             className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-[#45483f] text-white shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-[background-color,transform,box-shadow] hover:scale-[1.04] focus:outline-none focus:ring-4 active:scale-95 disabled:cursor-not-allowed disabled:opacity-55 ${isRunning ? "bg-[#b97832] hover:bg-[#a56829] focus:ring-[#b97832]/25" : "bg-[#6f8064] hover:bg-[#5f7055] focus:ring-[#91a184]/25"}`}
           >
-            {isLoading ? (
+            {showPrimarySpinner ? (
               <Loader2
                 className="h-6 w-6 animate-spin"
                 strokeWidth={2}
