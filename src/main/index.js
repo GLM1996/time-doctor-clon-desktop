@@ -1,5 +1,6 @@
 import { app, BrowserWindow, session } from 'electron';
 import { createMainWindow } from './window.js';
+import { showAuthExpiredWindow } from './authExpiredWindow.js';
 import { registerIpcHandlers } from './ipc/handlers.js';
 import logger from './utils/logger.js';
 import { appPreferenceStore, authStore } from './services/store.js';
@@ -172,10 +173,11 @@ if (!gotTheLock) {
       BrowserWindow.getAllWindows().forEach((window) => {
         if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.EVENT_AUTH_EXPIRED, {
-            message: 'Tu sesión expiró. Inicia sesión nuevamente para continuar.',
+            message: 'Tu sesi\u00f3n se cerr\u00f3 y el tracking se detuvo. Inicia sesi\u00f3n nuevamente para continuar.',
           });
         }
       });
+      showAuthExpiredWindow(mainWindow);
     });
   });
 
