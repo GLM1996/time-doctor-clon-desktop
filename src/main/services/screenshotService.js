@@ -33,6 +33,7 @@ import {
 import { resolvePrimarySourceIndex } from './displayCapturePolicy.js';
 import { quarantineLocalPath } from './localDataRecovery.js';
 import { calculatePeriodActivity, createActivityBaseline } from './screenshotActivityPeriod.js';
+import { assertOnDemandCapture } from './onDemandCapturePolicy.js';
 
 class ScreenshotService {
   constructor() {
@@ -266,6 +267,32 @@ class ScreenshotService {
     }
   }
 
+  async captureOnDemand(request) {
+    const check = () => assertOnDemandCapture({ request, timerStatus: timerService.getStatus(), serviceActive: this.isCapturing });
+    check();
+    if (this.capturePromise) throw new Error('Ya hay una captura en curso. Inténtalo de nuevo');
+    const capture = async () => {
+      const captures = await this._captureScreen();
+      const screenshotIds = [];
+      for (const screenCapture of captures) {
+        check();
+        const metadata = buildScreenshotMetadata({ activity: activityService.getSnapshot(), capture: screenCapture,
+          sessionId: request.sessionId, hostname: os.hostname() });
+        metadata.captureRequestId = request.requestId;
+        metadata.clientCaptureId = `on-demand-${request.requestId}-${screenCapture.displayIndex}`;
+        // Requests expire instead of entering the offline retry queue.
+        const screenshot = await this._uploadScreenshot(screenCapture, metadata);
+        screenshotIds.push(String(screenshot._id || screenshot.id));
+      }
+      if (!screenshotIds.length) throw new Error('No se pudo capturar ningún monitor');
+      this.lastCaptureAt = new Date();
+      this._notifyStatus();
+      return screenshotIds;
+    };
+    this.capturePromise = capture();
+    try { return await this.capturePromise; } finally { this.capturePromise = null; }
+  }
+
   async _performTakeAndSend(first) {
     try {
       if (!shouldCaptureScreenshot({
@@ -386,6 +413,7 @@ class ScreenshotService {
       // 👇 SOLO agregar campos que tengan valor (evita undefined)
       if (metadata.timestamp) formData.append('timestamp', metadata.timestamp);
       if (metadata.clientCaptureId) formData.append('clientCaptureId', metadata.clientCaptureId);
+      if (metadata.captureRequestId) formData.append('captureRequestId', metadata.captureRequestId);
       if (metadata.sessionId && !metadata.sessionId.startsWith('offline-')) {
         formData.append('sessionId', metadata.sessionId);
       }

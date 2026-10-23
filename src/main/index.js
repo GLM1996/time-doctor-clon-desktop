@@ -9,6 +9,7 @@ import timerService from './services/timerService.js';
 import trayService from './services/trayService.js';
 import connectionService from './services/connectionService.js';
 import screenshotService from './services/screenshotService.js';
+import captureRealtimeService from './services/captureRealtimeService.js';
 import crashReporterService from './services/crashReporterService.js';
 import configService from './services/configService.js';
 import { IPC_CHANNELS } from './ipc/channels.js';
@@ -121,6 +122,7 @@ if (!gotTheLock) {
     }
 
     // 👇 Auto-update: solo en producción
+    captureRealtimeService.start();
     if (app.isPackaged) {
       autoUpdateService.setBeforeInstallHandler(async () => {
         if (timerService.getStatus().isRunning) {
@@ -196,6 +198,7 @@ if (!gotTheLock) {
     isQuitting = true;
     timerService.prepareForShutdown();
     screenshotService.destroy();
+    captureRealtimeService.destroy();
     configService.destroy();
     autoUpdateService.destroy();
     trayService.destroy();
