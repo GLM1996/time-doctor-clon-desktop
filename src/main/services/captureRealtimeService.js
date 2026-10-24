@@ -3,6 +3,7 @@ import apiClient from './apiClient.js';
 import timerService from './timerService.js';
 import screenshotService from './screenshotService.js';
 import logger from '../utils/logger.js';
+import { prepareOnDemandCapture } from './onDemandCapturePolicy.js';
 
 class CaptureRealtimeService {
   start() {
@@ -22,6 +23,7 @@ class CaptureRealtimeService {
           if (['UNAUTHORIZED', 'SESSION_REVOKED'].includes(error.message)) this.refresh();
         });
         this.socket.on('screenshot:request', async (request, ack) => {
+          request = prepareOnDemandCapture(request);
           if (typeof ack !== 'function') return;
           if (this.seen?.has(request?.requestId)) return ack({ success: false, message: 'Solicitud duplicada' });
           this.seen ??= new Map();
