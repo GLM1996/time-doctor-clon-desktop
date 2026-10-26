@@ -1,4 +1,5 @@
 import axios from 'axios';
+import trustedClock from './trustedClock.js';
 import { app } from 'electron';
 import logger from '../utils/logger.js';
 import { authStore } from './store.js';
@@ -36,10 +37,12 @@ class ApiClient {
     // Interceptor para manejar errores
     this.client.interceptors.response.use(
       (response) => {
+        trustedClock.synchronize(response.headers?.date);
         this._setConnectionState(true);
         return response;
       },
       async (error) => {
+        trustedClock.synchronize(error.response?.headers?.date);
         this._setConnectionState(
           Boolean(error.response),
         );

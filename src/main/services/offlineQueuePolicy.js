@@ -11,13 +11,14 @@ export function normalizeRetryAt(value, now = Date.now()) {
 }
 
 export function pruneOfflineQueue(items, {
+  now = Date.now(),
   maxOfflineDays = 7,
   maxItems = 1000,
   getTimestamp = item => item.createdAt,
 } = {}) {
   const retentionDays = Math.min(30, Math.max(1, Number(maxOfflineDays) || 7));
   const queueLimit = Math.min(10000, Math.max(1, Number(maxItems) || 1000));
-  const oldestAllowed = Date.now() - retentionDays * 86400000;
+  const oldestAllowed = now - retentionDays * 86400000;
   return (Array.isArray(items) ? items : [])
     .filter(item => {
       const timestamp = new Date(getTimestamp(item) || 0).getTime();

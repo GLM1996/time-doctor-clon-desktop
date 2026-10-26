@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import apiClient from './apiClient.js';
+import trustedClock from './trustedClock.js';
 import { BrowserWindow, Notification, app } from 'electron';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import screenshotService from './screenshotService.js';
@@ -140,14 +141,14 @@ class TimerService {
 
         logger.warn('⚠️ Sin conexión. Creando sesión local offline.');
 
-        session = createOfflineSession();
+        session = createOfflineSession(trustedClock.date());
 
         isOffline = true;
       }
 
       this.sessionId = session._id;
       this.startTime = new Date(session.startTime);
-      this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
+      this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
       this.isRunning = true;
       this.isOffline = isOffline;
       configService.setTrackingActive(true);
@@ -259,7 +260,7 @@ class TimerService {
     this.currentDeviceInfo = localDevice;
     this.sessionId = String(resumedSession._id);
     this.startTime = startTime;
-    this.elapsedSeconds = calculateElapsedSeconds(startTime);
+    this.elapsedSeconds = calculateElapsedSeconds(startTime, trustedClock.now());
     this.isRunning = true;
     this.isOffline = false;
     this.workSelection = buildWorkSelection({
@@ -283,7 +284,7 @@ class TimerService {
   async stopBreak() {
     if (!this.currentBreakId) throw new Error('No hay una pausa activa.');
     const breakId = this.currentBreakId;
-    const endedAt = new Date().toISOString();
+    const endedAt = trustedClock.date().toISOString();
     let result;
     try {
       // En línea, el backend es la fuente de tiempo. No enviamos la hora de
@@ -318,7 +319,7 @@ class TimerService {
   _scheduleBreakExpiration(activeBreak) {
     this._clearBreakExpiration();
     if (!activeBreak?._id || !activeBreak?.expiresAt) return;
-    const delay = Math.max(0, new Date(activeBreak.expiresAt).getTime() - Date.now());
+    const delay = Math.max(0, new Date(activeBreak.expiresAt).getTime() - trustedClock.now());
     this.breakExpiryTimer = setTimeout(() => void this._handleBreakExpired(activeBreak), delay);
     this.breakExpiryTimer.unref?.();
   }
@@ -328,7 +329,7 @@ class TimerService {
 
     const endedAtCandidate = new Date(activeBreak.expiresAt);
     const endedAt = Number.isNaN(endedAtCandidate.getTime())
-      ? new Date().toISOString()
+      ? trustedClock.date().toISOString()
       : endedAtCandidate.toISOString();
 
     // Liberamos primero el estado local para que la UI nunca dependa de la
@@ -396,7 +397,7 @@ class TimerService {
     const sessionId = this.sessionId;
     const wasOffline = this.isOffline;
     const startTime = this.startTime;
-    const endTime = new Date();
+    const endTime = trustedClock.date();
     this.elapsedSeconds = calculateElapsedSeconds(startTime, endTime);
     const duration = this.elapsedSeconds;
     const activitySnapshot = activityService.getSnapshot();
@@ -543,6 +544,10 @@ class TimerService {
     this.lastSyncError = null;
     this._notifySyncUpdate();
     try {
+      if (!trustedClock.isReady()) {
+        await apiClient.get('/health', { timeout: 5000 });
+        trustedClock.now();
+      }
       const promotedOfflineSession = await this._promoteActiveOfflineSession();
       const synchronizedSessions = await this._syncPendingSessions();
       await activityService.processActivityQueue();
@@ -560,7 +565,7 @@ class TimerService {
         });
       }
       this.syncState = 'idle';
-      this.lastSyncAt = new Date().toISOString();
+      this.lastSyncAt = trustedClock.date().toISOString();
     } catch (error) {
       this.syncState = 'error';
       this.lastSyncError = error.message;
@@ -589,7 +594,7 @@ class TimerService {
     let successCount = 0;
 
     for (const pending of processingItems) {
-      if (!isPendingSessionReady(pending)) {
+      if (!isPendingSessionReady(pending, trustedClock.now())) {
         remaining.push(pending);
         continue;
       }
@@ -694,7 +699,7 @@ class TimerService {
         const action = classifyPendingSessionError(error, pending);
 
         if (action === 'retry') {
-          remaining.push(schedulePendingSessionRetry(pending, error));
+          remaining.push(schedulePendingSessionRetry(pending, error, trustedClock.now()));
         } else if (action === 'hold') {
           remaining.push(holdPendingSession(pending, error));
         }
@@ -773,8 +778,8 @@ class TimerService {
     }
 
     const localSessionId = this.sessionId;
-    const offlineStartTime = this.startTime || new Date();
-    const transitionTime = new Date();
+    const offlineStartTime = this.startTime || trustedClock.date();
+    const transitionTime = trustedClock.date();
     const offlineDuration = Math.max(
       0,
       Math.min(
@@ -813,7 +818,7 @@ class TimerService {
     this.startTime = new Date(onlineSession.startTime || transitionTime);
     this.elapsedSeconds = Math.max(
       0,
-      Math.floor((Date.now() - this.startTime.getTime()) / 1000),
+      Math.floor((trustedClock.now() - this.startTime.getTime()) / 1000),
     );
     if (this.statusCheckInterval) clearInterval(this.statusCheckInterval);
     this.statusCheckInterval = setInterval(() => this._checkSessionStatus(), 30 * 1000);
@@ -827,12 +832,12 @@ class TimerService {
   prepareForShutdown() {
     try {
       if (this.isRunning && this.startTime) {
-        this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
+        this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
       }
       const activitySnapshot = activityService.getSnapshot();
       this._stopServices();
       if (this.isRunning && this.sessionId) {
-        const endTime = new Date();
+        const endTime = trustedClock.date();
 
         if (this.isOffline || String(this.sessionId).startsWith('offline-')) {
           const alreadyQueued = this.pendingSessions.some(
@@ -919,7 +924,7 @@ class TimerService {
       type: 'offline-session',
       retryCount: 0,
       nextRetryAt: null,
-      createdAt: new Date().toISOString(),
+      createdAt: trustedClock.date().toISOString(),
       ...session
     });
 
@@ -939,7 +944,7 @@ class TimerService {
         type: 'stop-existing',
         retryCount: 0,
         nextRetryAt: null,
-        createdAt: new Date().toISOString(),
+        createdAt: trustedClock.date().toISOString(),
         ...operation
       });
     }
@@ -956,7 +961,7 @@ class TimerService {
         type: 'stop-break',
         retryCount: 0,
         nextRetryAt: null,
-        createdAt: new Date().toISOString(),
+        createdAt: trustedClock.date().toISOString(),
         ...operation,
       });
     }
@@ -1032,8 +1037,10 @@ class TimerService {
   }
 
   _prunePendingSessions() {
+    if (!trustedClock.isReady()) return;
     const policy = this.getOfflinePolicy();
     this.pendingSessions = pruneOfflineQueue(this.pendingSessions, {
+      now: trustedClock.now(),
       maxOfflineDays: policy.maxOfflineDays,
       maxItems: policy.maxPendingSessions,
       getTimestamp: item => item.createdAt || item.endTime || item.startTime
@@ -1072,7 +1079,7 @@ class TimerService {
 
   getStatus() {
     if (this.isRunning && this.startTime) {
-      this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
+      this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
     }
     return buildTimerStatus({
       isRunning: this.isRunning,
@@ -1121,7 +1128,7 @@ class TimerService {
     this._stopTicker();
 
     this.tickInterval = setInterval(() => {
-      this.elapsedSeconds = calculateElapsedSeconds(this.startTime);
+      this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
 
       BrowserWindow.getAllWindows().forEach(window => {
         if (!window.isDestroyed()) {

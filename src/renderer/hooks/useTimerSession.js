@@ -32,13 +32,12 @@ export default function useTimerSession({
   const elapsedObservationRef = useRef({ seconds: 0, at: performance.now() });
 
   const setObservedElapsed = useCallback((value, { allowDecrease = true } = {}) => {
-    const seconds = reconcileObservedElapsed(
-      elapsedRef.current,
-      value,
-      allowDecrease,
+    const observation = reconcileElapsedObservation(
+      elapsedObservationRef.current, value, performance.now(), allowDecrease,
     );
+    const seconds = observation.seconds;
     elapsedRef.current = seconds;
-    elapsedObservationRef.current = { seconds, at: performance.now() };
+    elapsedObservationRef.current = observation;
     setElapsedSeconds(seconds);
   }, []);
 
@@ -261,6 +260,19 @@ export function reconcileObservedElapsed(currentValue, reportedValue, allowDecre
   const currentSeconds = normalizeSeconds(currentValue);
   const reportedSeconds = normalizeSeconds(reportedValue);
   return allowDecrease ? reportedSeconds : Math.max(currentSeconds, reportedSeconds);
+}
+
+export function reconcileElapsedObservation(observation, reportedValue, now, allowDecrease = true) {
+  const reportedSeconds = normalizeSeconds(reportedValue);
+  if (allowDecrease) return { seconds: reportedSeconds, at: now };
+
+  const elapsedMs = Math.max(0, now - observation.at);
+  const wholeSeconds = Math.floor(elapsedMs / 1000);
+  const localSeconds = observation.seconds + wholeSeconds;
+  if (reportedSeconds > localSeconds) return { seconds: reportedSeconds, at: now };
+
+  // Preserve the fractional second so repeated stale updates cannot stall the clock.
+  return { seconds: localSeconds, at: observation.at + wholeSeconds * 1000 };
 }
 
 function normalizeSeconds(value) {
