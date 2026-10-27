@@ -64,6 +64,7 @@ function Timer() {
     reload: loadTodayTotal,
     sessionCount: todaySessions,
     total: todayTotal,
+    periods,
   } = useTodaySummary({ apiAvailable, electronAPI, mountedRef });
 
   useEffect(() => {
@@ -194,6 +195,10 @@ function Timer() {
           onPrimaryAction={handlePrimaryAction}
           selectedBreakTypeId={selectedBreakTypeId}
           todaySessions={todaySessions}
+          periodTotals={periods ? {
+            week: formatTime(periods.week + (isRunning || pendingAction === "stop" ? elapsedSeconds : 0)),
+            month: formatTime(periods.month + (isRunning || pendingAction === "stop" ? elapsedSeconds : 0)),
+          } : null}
         />
         <TimerErrorNotice apiAvailable={apiAvailable} message={error} />
         <SessionResultNotice isRunning={isRunning} result={lastResult} />

@@ -1,4 +1,4 @@
-import { Coffee, Loader2, Pause, Play } from "lucide-react";
+import { Info, Coffee, Loader2, Pause, Play } from "lucide-react";
 
 function TimeControlPanel({
   activeBreak,
@@ -15,6 +15,7 @@ function TimeControlPanel({
   selectedBreakTypeId,
   showPrimarySpinner,
   todaySessions,
+  periodTotals,
 }) {
   const primaryLabel = isRunning
     ? "Pausar seguimiento"
@@ -33,6 +34,18 @@ function TimeControlPanel({
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#bbbdb4]">
                 Tiempo total de hoy
               </p>
+              <span className="group relative inline-flex">
+                <button type="button" aria-label="Ver total semanal y mensual" aria-describedby="period-totals-tooltip"
+                  className="rounded text-[#bbbdb4] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#91a184]">
+                  <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+                <span id="period-totals-tooltip" role="tooltip"
+                  className="pointer-events-none absolute left-[-135px] top-full z-20 mt-2 hidden w-56 rounded-lg border border-[#64685c] bg-[#20231d] p-3 text-xs normal-case tracking-normal text-white shadow-xl group-hover:block group-focus-within:block">
+                  <span className="flex justify-between gap-2"><span>Esta semana</span><strong className="font-mono">{periodTotals?.week ?? "No disponible"}</strong></span>
+                  <span className="mt-2 flex justify-between gap-2"><span>Este mes</span><strong className="font-mono">{periodTotals?.month ?? "No disponible"}</strong></span>
+                  <span className="mt-2 block text-[10px] text-[#bbbdb4]">Semana de lunes a domingo</span>
+                </span>
+              </span>
             </div>
             <p
               className="mt-2 whitespace-nowrap font-mono text-[38px] font-semibold leading-none tracking-[-0.055em] text-white"

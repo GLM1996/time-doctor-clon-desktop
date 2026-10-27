@@ -610,12 +610,13 @@ function registerTimerHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.TIME_GET_TODAY_TOTAL, async () => {
     try {
-      const response = await apiClient.get("/sessions/today");
+      const hadPendingSessions = timerService.getSyncStatus().pendingSessions > 0;
+      const response = await apiClient.get("/sessions/today", { params: { includePeriods: true } });
 
       if (response.data?.success) {
         return {
           success: true,
-          data: response.data.data,
+          data: { ...response.data.data,authoritative:!hadPendingSessions && timerService.getSyncStatus().pendingSessions === 0 },
         };
       }
 
