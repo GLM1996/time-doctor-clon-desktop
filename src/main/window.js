@@ -5,6 +5,8 @@ import {
 } from 'electron';
 
 import path from 'path';
+import os from 'node:os';
+import { rendererTerminationReport } from './services/rendererTerminationReport.js';
 import { fileURLToPath } from 'url';
 
 import logger from './utils/logger.js';
@@ -29,6 +31,7 @@ export function createMainWindow({
   onCloseToTray = () => {},
 } = {}) {
   const isDev = !app.isPackaged;
+  const windowCreatedAt = Date.now();
 
   const preloadPath = path.join(
     __dirname,
@@ -181,10 +184,16 @@ export function createMainWindow({
   mainWindow.webContents.on(
     'render-process-gone',
     (_event, details) => {
-      logger.error(
-        `El proceso de interfaz terminó inesperadamente: ${details.reason}.`,
-      );
-      crashReporterService.capture({ eventType: 'render-process-gone', message: `Renderer terminated: ${details.reason}`, processType: 'renderer', severity: 'fatal' });
+      const report = rendererTerminationReport(details, {
+        windowAgeSeconds: Math.round((Date.now() - windowCreatedAt) / 1000),
+        quitting: shouldQuit(),
+        visible: mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible(),
+        electronVersion: process.versions.electron,
+        chromeVersion: process.versions.chrome,
+        osVersion: os.release(),
+      });
+      logger.error(report.message, report.stack);
+      crashReporterService.capture(report);
     },
   );
 
