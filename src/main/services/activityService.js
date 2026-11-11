@@ -625,17 +625,17 @@ class ActivityService {
         return;
       }
       if (this._isClosedSessionError(error)) {
-        // Con el backend actualizado, solo las sesiones cerradas manualmente
-        // llegan aquí; las cerradas por timeout aceptan actividad tardía.
-        this._discardSessionSnapshots(localSessionId);
-        timerService.handleRemoteSessionClosed(
+        const confirmedClosed = await timerService.handleRemoteSessionClosed(
           localSessionId,
           'activity-rejected'
         );
-
-        logger.warn(
-          `Actividad detenida: la sesión ${localSessionId} fue cerrada manualmente.`
-        );
+        if (confirmedClosed) {
+          this._discardSessionSnapshots(localSessionId);
+          logger.warn(`Actividad detenida: cierre definitivo de la sesión ${localSessionId}.`);
+        } else {
+          this._enqueueSnapshot(scheduleOfflineRetry(snapshot));
+          logger.warn('Actividad conservada: el cierre no es definitivo o no se pudo confirmar.');
+        }
         return;
       }
 
@@ -777,13 +777,15 @@ class ActivityService {
           continue;
         }
         if (this._isClosedSessionError(error)) {
-          timerService.handleRemoteSessionClosed(
+          const confirmedClosed = await timerService.handleRemoteSessionClosed(
             snapshot.sessionId,
             'activity-queue-rejected'
           );
-          logger.warn(
-            `Snapshot descartado: la sesión ${snapshot.sessionId} ya está cerrada.`
-          );
+          if (!confirmedClosed) {
+            remaining.push(scheduleOfflineRetry(snapshot));
+          } else {
+            logger.warn(`Snapshot descartado: cierre definitivo confirmado de la sesión ${snapshot.sessionId}.`);
+          }
           continue;
         }
 

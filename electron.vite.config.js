@@ -18,7 +18,6 @@ export default defineConfig({
       }
     }
   },
-
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {

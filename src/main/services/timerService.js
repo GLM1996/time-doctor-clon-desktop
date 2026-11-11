@@ -40,6 +40,9 @@ import {
 import { retryRequest } from './retryRequest.js';
 import { buildTimerStatus, buildTimerUpdate } from './timerStatus.js';
 import { quarantineLocalPath } from './localDataRecovery.js';
+import { confirmRemoteClosure } from './remoteSessionPolicy.js';
+import { showTrackingStoppedAlert } from './trackingStoppedAlert.js';
+import { getMainWindow } from '../window.js';
 
 class TimerService {
   constructor() {
@@ -1094,13 +1097,30 @@ class TimerService {
     });
   }
 
-  handleRemoteSessionClosed(sessionId, source = 'backend') {
+  async handleRemoteSessionClosed(sessionId, source = 'backend', knownSession) {
+    let result;
+    try {
+      result = await confirmRemoteClosure({
+        sessionId,
+        session: knownSession,
+        getSession: async id => {
+          const response = await apiClient.get(`/sessions/${id}`);
+          return response.data?.success ? response.data.data : null;
+        },
+      });
+    } catch (error) {
+      logger.warn(`No se pudo confirmar el cierre; se conserva la actividad pendiente: ${error.message}`);
+      return false;
+    }
+    // A timeout is a server-side boundary, not an instruction to stop tracking.
+    // Activity after that boundary is reconciled by the backend on synchronization.
+    if (result.state !== 'closed') return false;
     if (
       !this.isRunning ||
       !this.sessionId ||
       String(this.sessionId) !== String(sessionId)
     ) {
-      return false;
+      return true;
     }
 
     const duration = this.elapsedSeconds;
@@ -1120,6 +1140,15 @@ class TimerService {
       duration,
       durationFormatted: formatDuration(duration)
     });
+
+    try {
+      showTrackingStoppedAlert({
+        window: getMainWindow(), Notification,
+        message: 'La jornada fue cerrada desde el servidor. El registro de tiempo se detuvo. Revisa la app antes de continuar trabajando.',
+      });
+    } catch (error) {
+      logger.warn(`No se pudo mostrar la alerta de cierre: ${error.message}`);
+    }
 
     return true;
   }
@@ -1190,9 +1219,10 @@ class TimerService {
 
       logger.warn('⚠️ La sesión fue cerrada desde el backend.');
 
-      this.handleRemoteSessionClosed(
+      await this.handleRemoteSessionClosed(
         this.sessionId,
-        'status-check'
+        'status-check',
+        session,
       );
     } catch (error) {
       logger.debug(

@@ -29,16 +29,18 @@ export function TimerErrorNotice({ apiAvailable, message }) {
 }
 
 export function SessionResultNotice({ isRunning, result }) {
-  if (!result || isRunning || result.reason !== "inactivity") return null;
+  if (!result || isRunning || !['inactivity', 'backend'].includes(result.reason)) return null;
 
   const endedByInactivity = result.reason === "inactivity";
-  const Icon = endedByInactivity ? TimerReset : CheckCircle2;
+  const endedByServer = result.reason === 'backend';
+  const Icon = endedByServer ? AlertCircle : endedByInactivity ? TimerReset : CheckCircle2;
 
   return (
     <div
-      aria-live="polite"
+      role={endedByServer ? 'alert' : 'status'}
+      aria-live={endedByServer ? 'assertive' : 'polite'}
       className={`mt-4 flex items-start gap-2.5 rounded-xl border px-3.5 py-3 ${
-        endedByInactivity
+        endedByInactivity || endedByServer
           ? "border-[#dfbd8f] bg-[#fbf2e5] text-[#805b34]"
           : "border-[#bec8b5] bg-[#e8ede3] text-[#59664f]"
       }`}
@@ -46,10 +48,10 @@ export function SessionResultNotice({ isRunning, result }) {
       <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
       <div className="min-w-0">
         <p className="text-[10px] font-semibold">
-          {endedByInactivity ? "Sesión cerrada por inactividad" : "Sesión guardada"}
+          {endedByServer ? 'Registro detenido desde el servidor' : endedByInactivity ? "Sesión cerrada por inactividad" : "Sesión guardada"}
         </p>
         <p className="mt-1 text-[10px] leading-4">
-          {endedByInactivity ? result.message : `Duración: ${result.durationFormatted}`}
+          {endedByServer ? `${result.message} Pulsa Play para iniciar una nueva jornada cuando corresponda.` : endedByInactivity ? result.message : `Duración: ${result.durationFormatted}`}
         </p>
       </div>
     </div>
