@@ -1,6 +1,7 @@
 import { desktopCapturer, app, nativeImage, screen } from 'electron';
 import logger from '../utils/logger.js';
 import apiClient from './apiClient.js';
+import trustedClock from './trustedClock.js';
 import timerService from './timerService.js';
 import activityService from './activityService.js';
 import fs from 'fs';
@@ -268,7 +269,7 @@ class ScreenshotService {
   }
 
   async captureOnDemand(request) {
-    const check = () => assertOnDemandCapture({ request, timerStatus: timerService.getStatus(), serviceActive: this.isCapturing });
+    const check = () => assertOnDemandCapture({ request, timerStatus: timerService.getStatus(), serviceActive: this.isCapturing, now: trustedClock.now() });
     check();
     if (this.capturePromise) throw new Error('Ya hay una captura en curso. Inténtalo de nuevo');
     const capture = async () => {
@@ -285,7 +286,7 @@ class ScreenshotService {
         screenshotIds.push(String(screenshot._id || screenshot.id));
       }
       if (!screenshotIds.length) throw new Error('No se pudo capturar ningún monitor');
-      this.lastCaptureAt = new Date();
+      this.lastCaptureAt = trustedClock.date();
       this._notifyStatus();
       return screenshotIds;
     };
@@ -383,7 +384,7 @@ class ScreenshotService {
         }
       }
 
-      this.lastCaptureAt = new Date();
+      this.lastCaptureAt = trustedClock.date();
       this._notifyStatus();
 
     } catch (error) {
@@ -490,6 +491,7 @@ class ScreenshotService {
       }
 
       this.pendingQueue.push(createScreenshotQueueItem({
+        now: trustedClock.date(),
         filePath,
         metadata: {
           ...metadata,
@@ -550,6 +552,8 @@ class ScreenshotService {
       return;
     }
 
+    if (!trustedClock.isReady()) return;
+
     logger.info(`🔄 Procesando cola: ${this.pendingQueue.length} capturas pendientes`);
 
     const remaining = [];
@@ -559,9 +563,9 @@ class ScreenshotService {
     let discardedCount = 0;
 
     for (const queuedItem of processingItems) {
-      let item = normalizeScreenshotQueueItem(queuedItem);
+      let item = normalizeScreenshotQueueItem(queuedItem, trustedClock.now());
       try {
-        const decision = evaluateScreenshotQueueItem(item);
+        const decision = evaluateScreenshotQueueItem(item, trustedClock.now());
         item = decision.item;
 
         if (decision.action === 'wait') {
@@ -581,6 +585,12 @@ class ScreenshotService {
 
         if (!isPathInsideDirectory(item.filePath, this.pendingDir)) {
           logger.error(`Captura ${item.id} descartada: ruta local no autorizada.`);
+          discardedCount++;
+          continue;
+        }
+
+        if (Date.parse(item.createdAt) < trustedClock.now() - this.maxOfflineDays * 86400000) {
+          await this._deletePendingFile(item.filePath);
           discardedCount++;
           continue;
         }
@@ -646,7 +656,7 @@ class ScreenshotService {
           logger.warn(`Captura ${item?.id || 'desconocida'} descartada por un error HTTP permanente.`);
           continue;
         }
-        item = scheduleScreenshotRetry(item, error);
+        item = scheduleScreenshotRetry(item, error, trustedClock.now());
         failCount++;
         logger.warn(`🔁 Captura ${item.id} falló (intento ${item.retryCount}/${item.maxRetries}): ${error.message}`);
         remaining.push(item);
@@ -671,7 +681,7 @@ class ScreenshotService {
 
   async _saveQueue() {
     try {
-      this.pendingQueue = normalizeScreenshotQueue(this.pendingQueue);
+      this.pendingQueue = normalizeScreenshotQueue(this.pendingQueue, trustedClock.isReady() ? trustedClock.now() : null);
       secureLocalStorage.writeJson(this.queueFilePath, this.pendingQueue);
       queueMicrotask(() => timerService.notifySyncStatus());
       this._notifyStatus();
@@ -684,7 +694,7 @@ class ScreenshotService {
     try {
       if (fs.existsSync(this.queueFilePath)) {
         const storedQueue = secureLocalStorage.readJson(this.queueFilePath, []);
-        this.pendingQueue = normalizeScreenshotQueue(storedQueue)
+        this.pendingQueue = normalizeScreenshotQueue(storedQueue, trustedClock.isReady() ? trustedClock.now() : null)
           .filter(item => {
             const allowed = isPathInsideDirectory(item.filePath, this.pendingDir);
             if (!allowed) logger.error(`Entrada de captura descartada por ruta no autorizada: ${item.id}`);
@@ -694,7 +704,9 @@ class ScreenshotService {
 
         // Verificar que los archivos aún existen (limpieza post-cierre abrupto)
         const validQueue = [];
-        const oldestAllowed = Date.now() - this.maxOfflineDays * 86400000;
+        const oldestAllowed = trustedClock.isReady()
+          ? trustedClock.now() - this.maxOfflineDays * 86400000
+          : -Infinity;
         for (const item of this.pendingQueue) {
           const createdAt = new Date(item.createdAt || 0).getTime();
           if (
@@ -934,7 +946,7 @@ class ScreenshotService {
         }
       }
 
-      this.lastCaptureAt = new Date();
+      this.lastCaptureAt = trustedClock.date();
       this._notifyStatus();
 
       return { success: true, data: { captures: results, capturedAt: this.lastCaptureAt } };

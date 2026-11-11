@@ -26,7 +26,7 @@ export function createScreenshotQueueItem({
   };
 }
 
-export function normalizeScreenshotQueueItem(item) {
+export function normalizeScreenshotQueueItem(item, now = Date.now()) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
   const id = validQueueId(item.id) ? item.id.trim() : buildLegacyQueueId(item);
   return {
@@ -40,14 +40,14 @@ export function normalizeScreenshotQueueItem(item) {
     },
     retryCount: Math.min(1000, nonNegativeInteger(item.retryCount)),
     maxRetries: positiveInteger(item.maxRetries, 5, 10),
-    nextRetryAt: normalizeRetryAt(item.nextRetryAt),
+    nextRetryAt: normalizeRetryAt(item.nextRetryAt, now),
   };
 }
 
-export function normalizeScreenshotQueue(items) {
+export function normalizeScreenshotQueue(items, now = Date.now()) {
   const byId = new Map();
   (Array.isArray(items) ? items : [])
-    .map(normalizeScreenshotQueueItem)
+    .map(item => normalizeScreenshotQueueItem(item, now))
     .filter(Boolean)
     .forEach(item => byId.set(item.id, item));
   return [...byId.values()];
@@ -63,7 +63,7 @@ function validQueueId(value) {
 }
 
 export function evaluateScreenshotQueueItem(item, now = Date.now()) {
-  const normalized = normalizeScreenshotQueueItem(item);
+  const normalized = normalizeScreenshotQueueItem(item, now);
   if (!normalized) return { action: 'discard', item: null, reason: 'invalid' };
 
   const retryAt = Date.parse(normalized.nextRetryAt || '');
@@ -97,7 +97,7 @@ export function linkScreenshotSession(items, localSessionId, remoteSessionId) {
 }
 
 export function scheduleScreenshotRetry(item, error, now = Date.now()) {
-  const normalized = normalizeScreenshotQueueItem(item) || {};
+  const normalized = normalizeScreenshotQueueItem(item, now) || {};
   const retryCount = nonNegativeInteger(normalized.retryCount) + 1;
   return {
     ...normalized,

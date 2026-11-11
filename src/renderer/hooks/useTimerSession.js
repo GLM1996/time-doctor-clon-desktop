@@ -18,7 +18,6 @@ export default function useTimerSession({
   projectId,
   setActiveBreak,
   setActivityStatus,
-  setSyncStatus,
   taskId,
 }) {
   const [isRunning, setIsRunning] = useState(false);
@@ -28,34 +27,17 @@ export default function useTimerSession({
   const [error, setError] = useState("");
   const [lastResult, setLastResult] = useState(null);
   const sessionClosingRef = useRef(false);
+  const activeSessionRef = useRef(null);
+  const closedSessionsRef = useRef(new Set());
   const elapsedRef = useRef(0);
-  const elapsedObservationRef = useRef({ seconds: 0, at: performance.now() });
 
   const setObservedElapsed = useCallback((value, { allowDecrease = true } = {}) => {
-    const observation = reconcileElapsedObservation(
-      elapsedObservationRef.current, value, performance.now(), allowDecrease,
-    );
-    const seconds = observation.seconds;
+    // Display only whole seconds confirmed by the main process. Never invent
+    // elapsed seconds between samples: that can run ahead of the persisted stop.
+    const seconds = reconcileObservedElapsed(elapsedRef.current, value, allowDecrease);
     elapsedRef.current = seconds;
-    elapsedObservationRef.current = observation;
     setElapsedSeconds(seconds);
   }, []);
-
-  useEffect(() => {
-    if (!isRunning) return undefined;
-    const updateLocalClock = () => {
-      const observation = elapsedObservationRef.current;
-      const seconds = observation.seconds + Math.max(
-        0,
-        Math.floor((performance.now() - observation.at) / 1000),
-      );
-      elapsedRef.current = seconds;
-      setElapsedSeconds(seconds);
-    };
-    updateLocalClock();
-    const interval = window.setInterval(updateLocalClock, 250);
-    return () => window.clearInterval(interval);
-  }, [isRunning]);
 
   useEffect(() => {
     if (!apiAvailable) {
@@ -75,9 +57,9 @@ export default function useTimerSession({
         const status = await electronAPI.getTimerStatus();
         if (!active) return;
 
+        activeSessionRef.current = status?.trackingId || status?.sessionId || null;
         setIsRunning(Boolean(status?.isRunning));
         setObservedElapsed(status?.elapsedSeconds);
-        if (status?.sync) setSyncStatus(status.sync);
         await loadTodayTotal();
       } catch (loadError) {
         reportRendererError("Error cargando estado inicial", loadError);
@@ -98,7 +80,7 @@ export default function useTimerSession({
     return () => {
       active = false;
     };
-  }, [apiAvailable, electronAPI, loadTodayTotal, setObservedElapsed, setSyncStatus]);
+  }, [apiAvailable, electronAPI, loadTodayTotal, setObservedElapsed]);
 
   useEffect(() => {
     if (!apiAvailable) return undefined;
@@ -106,17 +88,23 @@ export default function useTimerSession({
     return electronAPI.events.onSessionClosed((data = {}) => {
       if (!mountedRef.current) return;
 
+      if (data.sessionId && closedSessionsRef.current.has(data.sessionId)) return;
+      if (data.sessionId && activeSessionRef.current && data.sessionId !== activeSessionRef.current) return;
+      if (data.sessionId) closedSessionsRef.current.add(data.sessionId);
+      activeSessionRef.current = null;
       sessionClosingRef.current = false;
       operationRef.current = "";
       commitClosedSession(data.durationSeconds ?? data.duration);
       setIsRunning(false);
-      setActiveBreak(null);
+      if (data.reason !== "break") setActiveBreak(null);
       setObservedElapsed(0);
       setIsLoading(false);
       setPendingAction("");
       clearTransientStates();
       setActivityStatus(INITIAL_ACTIVITY_STATUS);
       setLastResult({
+        sessionId: data.sessionId,
+        queuedForSync: Boolean(data.queuedForSync),
         durationFormatted: data.durationFormatted || formatTime(data.durationSeconds),
         reason: data.reason || "manual",
         message: data.message || "Sesión guardada correctamente.",
@@ -142,15 +130,30 @@ export default function useTimerSession({
     if (!apiAvailable) return undefined;
     return electronAPI.events.onTimerUpdate((data = {}) => {
       if (!mountedRef.current) return;
+      if (data.refreshTodayTotal === true) void loadTodayTotal();
+      if (!shouldAcceptTimerUpdate({ closing: sessionClosingRef.current, activeId: activeSessionRef.current, starting: operationRef.current === 'start' }, data)) return;
       setIsRunning(Boolean(data.isRunning));
       setObservedElapsed(data.elapsedSeconds, {
         allowDecrease: !data.isRunning,
       });
-      if (data.refreshTodayTotal === true) {
-        loadTodayTotal();
-      }
+
     });
   }, [apiAvailable, electronAPI, loadTodayTotal, mountedRef, setObservedElapsed]);
+
+  useEffect(() => {
+    if (!apiAvailable || !electronAPI.events.onSessionSynced) return undefined;
+    return electronAPI.events.onSessionSynced(data => {
+      if (!mountedRef.current) return;
+      setLastResult(current => current?.sessionId === data.sessionId ? {
+        ...current, queuedForSync: false, adjusted: data.adjusted,
+        durationFormatted: formatTime(data.duration),
+        message: data.adjusted
+          ? 'El servidor ajustó la duración por ' + ({ timeout: 'cierre por falta de conexión', inactivity: 'inactividad', new_session: 'inicio en otro equipo', manual: 'cierre manual', system: 'cierre del sistema' }[data.reason] || 'un cierre remoto') + '.'
+          : current.message,
+      } : current);
+      void loadTodayTotal();
+    });
+  }, [apiAvailable, electronAPI, loadTodayTotal, mountedRef]);
 
   const start = useCallback(async () => {
     if (operationRef.current || isLoading || isRunning || !apiAvailable) return;
@@ -163,7 +166,6 @@ export default function useTimerSession({
     clearTransientStates();
     setActivityStatus(INITIAL_ACTIVITY_STATUS);
     setObservedElapsed(0);
-    setIsRunning(true);
 
     try {
       const result = await electronAPI.startTimer({
@@ -174,9 +176,10 @@ export default function useTimerSession({
         throw new Error(result?.message || "No se pudo iniciar la sesión.");
       }
       if (!mountedRef.current) return;
-      setObservedElapsed(result?.data?.elapsedSeconds, {
-        allowDecrease: false,
-      });
+      if (closedSessionsRef.current.has(result?.data?.sessionId)) return;
+      activeSessionRef.current = result?.data?.trackingId || result?.data?.sessionId || null;
+      setObservedElapsed(result?.data?.elapsedSeconds, { allowDecrease: false });
+      setIsRunning(true);
     } catch (startError) {
       reportRendererError("Error iniciando temporizador", startError);
       setIsRunning(false);
@@ -262,19 +265,6 @@ export function reconcileObservedElapsed(currentValue, reportedValue, allowDecre
   return allowDecrease ? reportedSeconds : Math.max(currentSeconds, reportedSeconds);
 }
 
-export function reconcileElapsedObservation(observation, reportedValue, now, allowDecrease = true) {
-  const reportedSeconds = normalizeSeconds(reportedValue);
-  if (allowDecrease) return { seconds: reportedSeconds, at: now };
-
-  const elapsedMs = Math.max(0, now - observation.at);
-  const wholeSeconds = Math.floor(elapsedMs / 1000);
-  const localSeconds = observation.seconds + wholeSeconds;
-  if (reportedSeconds > localSeconds) return { seconds: reportedSeconds, at: now };
-
-  // Preserve the fractional second so repeated stale updates cannot stall the clock.
-  return { seconds: localSeconds, at: observation.at + wholeSeconds * 1000 };
-}
-
 function normalizeSeconds(value) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? Math.max(0, Math.floor(numericValue)) : 0;
@@ -288,4 +278,11 @@ function formatTime(seconds) {
   return [hours, minutes, remainingSeconds]
     .map((value) => String(value).padStart(2, "0"))
     .join(":");
+}
+
+export function shouldAcceptTimerUpdate({ closing, activeId, starting }, data) {
+  if (closing) return false;
+  if (!activeId && !starting) return false;
+  const id = data.trackingId || data.sessionId;
+  return !activeId || !id || activeId === id;
 }

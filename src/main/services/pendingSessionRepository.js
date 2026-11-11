@@ -12,23 +12,23 @@ export default class PendingSessionRepository {
     this.exists = exists;
   }
 
-  load() {
+  load(now = Date.now()) {
     if (!this.exists(this.filePath)) return [];
-    return normalizePendingSessions(this.storage.readJson(this.filePath, []));
+    return normalizePendingSessions(this.storage.readJson(this.filePath, []), now);
   }
 
-  save(items) {
-    const normalized = normalizePendingSessions(items);
+  save(items, now = Date.now()) {
+    const normalized = normalizePendingSessions(items, now);
     this.storage.writeJson(this.filePath, normalized);
     return normalized;
   }
 }
 
-export function normalizePendingSessions(value) {
+export function normalizePendingSessions(value, now = Date.now()) {
   if (!Array.isArray(value)) return [];
   const normalized = value
     .filter(item => item && typeof item === 'object' && !Array.isArray(item))
-    .map(normalizePendingSession)
+    .map(item => normalizePendingSession(item, now))
     .filter(Boolean);
 
   const byKey = new Map();
@@ -43,7 +43,7 @@ export function normalizePendingSessions(value) {
   return [...byKey.values()];
 }
 
-function normalizePendingSession(item) {
+function normalizePendingSession(item, now) {
   let type = item.type;
   let localId = item.localId;
 
@@ -64,7 +64,7 @@ function normalizePendingSession(item) {
     ...(type === 'stop-existing' ? { sessionId: String(item.sessionId).trim() } : {}),
     ...(type === 'stop-break' ? { breakId: String(item.breakId).trim() } : {}),
     retryCount: Math.min(1000, Math.max(0, Math.floor(Number(item.retryCount) || 0))),
-    nextRetryAt: normalizeRetryAt(item.nextRetryAt),
+    nextRetryAt: normalizeRetryAt(item.nextRetryAt, now),
   };
 }
 

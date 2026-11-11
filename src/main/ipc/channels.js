@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
   TIMER_START: 'timer:start',
   TIMER_STOP: 'timer:stop',
   TIMER_GET_STATUS: 'timer:get-status',
+  TIMER_SYNC_PENDING: 'timer:sync-pending',
   TIMER_GET_WORK_OPTIONS: 'timer:get-work-options',
   TIMER_GET_BREAKS: 'timer:get-breaks',
   TIMER_START_BREAK: 'timer:start-break',

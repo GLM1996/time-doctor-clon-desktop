@@ -5,6 +5,7 @@ export function buildTimerStatus({
   currentBreakId,
   isOffline,
   sessionId,
+  trackingId,
   startTime,
   elapsedSeconds,
   pendingOperations,
@@ -18,6 +19,7 @@ export function buildTimerStatus({
     currentBreakId: currentBreakId || null,
     isOffline: Boolean(isOffline),
     sessionId: sessionId || null,
+    ...(trackingId ? { trackingId } : {}),
     startTime: startTime || null,
     elapsedSeconds: elapsed,
     elapsedFormatted: formatDuration(elapsed),
@@ -33,6 +35,7 @@ export function buildTimerUpdate({
   isOffline,
   elapsedSeconds,
   sessionId,
+  trackingId,
 }) {
   const elapsed = normalizeCount(elapsedSeconds);
   return {
@@ -42,6 +45,7 @@ export function buildTimerUpdate({
     elapsedSeconds: elapsed,
     elapsedFormatted: formatDuration(elapsed),
     sessionId: sessionId || null,
+    ...(trackingId ? { trackingId } : {}),
   };
 }
 

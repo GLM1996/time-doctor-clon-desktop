@@ -10,9 +10,9 @@ test('logout is allowed when all local data is synchronized', () => {
   });
 });
 
-test('logout is blocked while offline data remains', () => {
+test('logout remains available while offline data is safely pending', () => {
   const result = evaluateLogoutSyncState({ pendingTotal: 3 });
-  assert.equal(result.canLogout, false);
+  assert.equal(result.canLogout, true);
   assert.equal(result.pendingTotal, 3);
-  assert.match(result.message, /3 operaciones/);
+  assert.match(result.message, /guardados en este equipo/);
 });

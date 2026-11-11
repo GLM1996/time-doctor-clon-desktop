@@ -29,10 +29,10 @@ export function TimerErrorNotice({ apiAvailable, message }) {
 }
 
 export function SessionResultNotice({ isRunning, result }) {
-  if (!result || isRunning || !['inactivity', 'backend'].includes(result.reason)) return null;
+  if (!result || isRunning || (!['inactivity', 'backend', 'rejected'].includes(result.reason) && !result.adjusted)) return null;
 
   const endedByInactivity = result.reason === "inactivity";
-  const endedByServer = result.reason === 'backend';
+  const endedByServer = ['backend', 'rejected'].includes(result.reason) || result.adjusted === true;
   const Icon = endedByServer ? AlertCircle : endedByInactivity ? TimerReset : CheckCircle2;
 
   return (
@@ -48,10 +48,10 @@ export function SessionResultNotice({ isRunning, result }) {
       <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
       <div className="min-w-0">
         <p className="text-[10px] font-semibold">
-          {endedByServer ? 'Registro detenido desde el servidor' : endedByInactivity ? "Sesión cerrada por inactividad" : "Sesión guardada"}
+          {endedByServer ? 'Registro detenido desde el servidor' : endedByInactivity ? "Sesión cerrada por inactividad" : "Sesión detenida"}
         </p>
         <p className="mt-1 text-[10px] leading-4">
-          {endedByServer ? `${result.message} Pulsa Play para iniciar una nueva jornada cuando corresponda.` : endedByInactivity ? result.message : `Duración: ${result.durationFormatted}`}
+          {endedByServer ? `${result.message} Pulsa Play para iniciar una nueva jornada cuando corresponda.` : endedByInactivity ? result.message : `Duración: ${result.durationFormatted}. ${result.message || ""}`}
         </p>
       </div>
     </div>

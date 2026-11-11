@@ -1,9 +1,11 @@
+import trustedClock from './trustedClock.js';
+
 export function buildScreenshotMetadata({
   activity = {},
   capture = {},
   sessionId,
   hostname,
-  timestamp = new Date().toISOString(),
+  timestamp = trustedClock.date().toISOString(),
 }) {
   return {
     timestamp,

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import trustedClock from './trustedClock.js';
-import { app } from 'electron';
+import { app, powerMonitor } from 'electron';
 import logger from '../utils/logger.js';
 import { authStore } from './store.js';
 import { shouldRevokeSessionAfterRefreshError } from './authRefreshPolicy.js';
@@ -26,8 +26,16 @@ class ApiClient {
     this.refreshPromise = null;
     this.authExpiredListeners = new Set();
 
+    const synchronize = () => {
+      void this.client.get('/clock', { _skipAuthRefresh: true }).catch(() => {});
+    };
+    this.clockSyncTimer = setInterval(synchronize, 60000);
+    this.clockSyncTimer.unref();
+    app.whenReady().then(() => powerMonitor.on('resume', synchronize));
+
     // Interceptor para agregar token
     this.client.interceptors.request.use((config) => {
+      config.clockRequestedAt = performance.now();
       if (this.token) {
         config.headers.Authorization = `Bearer ${this.token}`;
       }
@@ -37,12 +45,12 @@ class ApiClient {
     // Interceptor para manejar errores
     this.client.interceptors.response.use(
       (response) => {
-        trustedClock.synchronize(response.headers?.date);
+        trustedClock.synchronize(response.headers?.['x-server-time'] || response.headers?.date, response.config?.clockRequestedAt);
         this._setConnectionState(true);
         return response;
       },
       async (error) => {
-        trustedClock.synchronize(error.response?.headers?.date);
+        trustedClock.synchronize(error.response?.headers?.['x-server-time'] || error.response?.headers?.date, error.config?.clockRequestedAt);
         this._setConnectionState(
           Boolean(error.response),
         );

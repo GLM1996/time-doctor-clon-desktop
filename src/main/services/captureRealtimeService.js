@@ -27,7 +27,7 @@ class CaptureRealtimeService {
           if (typeof ack !== 'function') return;
           if (this.seen?.has(request?.requestId)) return ack({ success: false, message: 'Solicitud duplicada' });
           this.seen ??= new Map();
-          const now = Date.now();
+          const now = performance.now();
           for (const [id, expiry] of this.seen) if (expiry <= now) this.seen.delete(id);
           this.seen.set(request?.requestId, now + 60000);
           try { await screenshotService.captureOnDemand(request); ack({ success: true }); }

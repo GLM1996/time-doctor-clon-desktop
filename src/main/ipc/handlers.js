@@ -4,12 +4,13 @@ import { IPC_CHANNELS } from "./channels.js";
 
 import logger from "../utils/logger.js";
 import apiClient from "../services/apiClient.js";
+import trustedClock from "../services/trustedClock.js";
 import { appPreferenceStore, authStore, credentialStore } from "../services/store.js";
 import timerService from "../services/timerService.js";
 import screenshotService from "../services/screenshotService.js";
 import trayService from "../services/trayService.js";
 import connectionService from "../services/connectionService.js";
-import { evaluateLogoutSyncState } from "../services/logoutSyncPolicy.js";
+import { logoutSession } from "../services/logoutSession.js";
 import { canUsePendingData } from "../services/pendingDataOwnerPolicy.js";
 import crashReporterService from "../services/crashReporterService.js";
 import { persistAuthSession } from "../services/authPersistencePolicy.js";
@@ -407,65 +408,10 @@ function registerAuthHandlers() {
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async () => {
     logger.info("Cerrando sesión.");
 
-    /*
-     * Guardar el token antes de limpiar sería necesario
-     * si luego deseas notificar el logout al backend.
-     */
-    try {
-      if (timerService.getStatus().isRunning) {
-        await timerService.stop("system");
-      }
-    } catch (error) {
-      logger.error(
-        `No se pudo cerrar la jornada antes del logout: ${error.message}`,
-      );
-
-      return {
-        success: false,
-        message:
-          "No se pudo cerrar la jornada activa. Detén el temporizador e inténtalo nuevamente.",
-      };
-    }
-
-    const logoutSyncState = evaluateLogoutSyncState(
-      timerService.getSyncStatus(),
-    );
-    if (!logoutSyncState.canLogout) {
-      logger.warn(
-        `Logout aplazado: ${logoutSyncState.pendingTotal} operaciones pendientes.`,
-      );
-      return {
-        success: false,
-        code: "PENDING_SYNC",
-        pendingTotal: logoutSyncState.pendingTotal,
-        message: logoutSyncState.message,
-      };
-    }
-
-    const refreshToken = authStore.getRefreshToken();
-    const sessionId = authStore.getSessionId();
-
-    try {
-      if (refreshToken && sessionId) {
-        await apiClient.post(
-          "/auth/logout",
-          { refreshToken, sessionId },
-          { _skipAuthRefresh: true },
-        );
-      }
-    } catch (error) {
-      logger.warn(
-        `No se pudo notificar el logout al servidor: ${error.message}`,
-      );
-    } finally {
-      authStore.clearAll();
-      apiClient.clearToken();
-      trayService.refreshIdentity();
-    }
-
-    return {
-      success: true,
-    };
+    return logoutSession({
+      timer: timerService, store: authStore, api: apiClient, tray: trayService,
+      onError: error => logger.warn('Cierre de sesión: ' + error.message),
+    });
   });
 }
 
@@ -481,7 +427,9 @@ function registerTimerHandlers() {
         success: true,
         data: {
           types: types.data?.data || [],
-          current: current.data?.data || null,
+          current: current.data?.data
+            ? { ...current.data.data, serverNow: trustedClock.date().toISOString() }
+            : null,
         },
       };
     } catch (error) {
@@ -582,6 +530,11 @@ function registerTimerHandlers() {
         message: error.message || "No fue posible detener la sesión.",
       };
     }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TIMER_SYNC_PENDING, async () => {
+    try { await timerService.retrySessionSync(); return { success: true }; }
+    catch { return { success: false, message: timerService.getSyncStatus().lastError }; }
   });
 
   ipcMain.handle(IPC_CHANNELS.TIMER_GET_STATUS, async () => {

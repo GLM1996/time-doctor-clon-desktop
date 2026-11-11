@@ -2,6 +2,7 @@ import updaterPackage from 'electron-updater';
 import { BrowserWindow, ipcMain, app } from 'electron';
 
 import logger from '../utils/logger.js';
+import trustedClock from './trustedClock.js';
 import { updateHealthStore } from './store.js';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import { isVersionNewer, normalizeDownloadProgress, normalizeUpdateCheckInterval } from './autoUpdatePolicy.js';
@@ -174,7 +175,7 @@ class AutoUpdateService {
     updateHealthStore.setPending({
       previousVersion: app.getVersion(),
       targetVersion: this.updateInfo?.version,
-      preparedAt: new Date().toISOString(),
+      preparedAt: trustedClock.isReady() ? trustedClock.date().toISOString() : null,
     });
 
     try {

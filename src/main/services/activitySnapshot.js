@@ -43,7 +43,7 @@ export function createActivitySnapshot({
 
 export function toActivityApiPayload(
   snapshot,
-  { defaultIntervalSeconds = 60, clientEventId = randomUUID() } = {},
+  { defaultIntervalSeconds = 60, clientEventId = randomUUID(), now = new Date() } = {},
 ) {
   const intervalSeconds = integerBetween(
     snapshot?.intervalSeconds,
@@ -56,7 +56,7 @@ export function toActivityApiPayload(
   return {
     sessionId: snapshot?.sessionId || null,
     clientEventId: snapshot?.clientEventId || clientEventId,
-    timestamp: snapshot?.timestamp || new Date().toISOString(),
+    timestamp: snapshot?.timestamp || toIsoString(now),
     activityPercentage,
     keyboardEvents: nonNegativeInteger(snapshot?.keyboardEvents),
     mouseEvents: nonNegativeInteger(snapshot?.mouseEvents),

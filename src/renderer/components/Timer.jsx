@@ -12,15 +12,15 @@ import {
   SessionResultNotice,
   TimerErrorNotice,
 } from "./TimerFeedback.jsx";
-import { SyncStatusNotice, UpdateNotice } from "./TimerNotices.jsx";
+import { UpdateNotice } from "./TimerNotices.jsx";
 import WorkSelection from "./WorkSelection.jsx";
 import useActivityEvents from "../hooks/useActivityEvents.js";
 import useAutoUpdater from "../hooks/useAutoUpdater.js";
 import useBreakControl from "../hooks/useBreakControl.js";
-import useSyncStatus from "../hooks/useSyncStatus.js";
 import useTimerSession from "../hooks/useTimerSession.js";
 import useTodaySummary from "../hooks/useTodaySummary.js";
 import useWorkOptions from "../hooks/useWorkOptions.js";
+import { getBreakElapsedAtObservation } from "../utils/breakClock.js";
 
 function Timer() {
   const electronAPI = window.electronAPI;
@@ -45,11 +45,6 @@ function Timer() {
     electronAPI.events,
   );
 
-  const { setSyncStatus, syncStatus } = useSyncStatus({
-    apiAvailable,
-    electronAPI,
-    mountedRef,
-  });
 
   const {
     activityStatus,
@@ -80,19 +75,8 @@ function Timer() {
       setBreakElapsedSeconds(0);
       return undefined;
     }
-    const explicitStart = new Date(activeBreak.startTime).getTime();
-    const serverNow = new Date(activeBreak.serverNow).getTime();
-    const expiresAt = new Date(activeBreak.expiresAt).getTime();
-    const maxMinutes = Number(activeBreak.type?.maxMinutes) || 0;
-    const startTime = Number.isFinite(explicitStart)
-      ? explicitStart
-      : Number.isFinite(expiresAt) && maxMinutes > 0
-        ? expiresAt - maxMinutes * 60_000
-        : Date.now();
     const observedAt = performance.now();
-    const elapsedAtObservation = Number.isFinite(serverNow)
-      ? Math.max(0, Math.floor((serverNow - startTime) / 1000))
-      : Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+    const elapsedAtObservation = getBreakElapsedAtObservation(activeBreak);
     const update = () => setBreakElapsedSeconds(
       elapsedAtObservation + Math.max(0, Math.floor((performance.now() - observedAt) / 1000)),
     );
@@ -124,7 +108,6 @@ function Timer() {
     projectId,
     setActiveBreak,
     setActivityStatus,
-    setSyncStatus,
     taskId,
   });
 
@@ -177,7 +160,6 @@ function Timer() {
           onDismiss={dismissUpdate}
           onUpdate={handleUpdate}
         />
-        <SyncStatusNotice status={syncStatus} />
         <TimeControlPanel
           activeBreak={activeBreak}
           actionDisabled={actionDisabled}

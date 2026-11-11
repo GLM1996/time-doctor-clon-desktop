@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildScreenshotMetadata } from '../src/main/services/screenshotMetadata.js';
+import trustedClock from '../src/main/services/trustedClock.js';
+
+let tick = 0;
+trustedClock.monotonicNow = () => tick;
+trustedClock.synchronize('2026-08-13T12:00:00.000Z');
+
+test('la captura usa la hora del servidor y conserva la fecha original al reintentarse', () => {
+  tick = 180000;
+  const captured = buildScreenshotMetadata({});
+  assert.equal(captured.timestamp, '2026-08-13T12:03:00.000Z');
+  tick = 900000;
+  const pending = buildScreenshotMetadata({ timestamp: captured.timestamp });
+  assert.equal(pending.timestamp, '2026-08-13T12:03:00.000Z');
+  assert.equal(buildScreenshotMetadata({}).timestamp, '2026-08-13T12:15:00.000Z');
+});
 
 test('los metadatos usan los campos reales del snapshot de actividad', () => {
   const result = buildScreenshotMetadata({

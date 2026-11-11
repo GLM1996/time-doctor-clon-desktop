@@ -29,7 +29,7 @@ export function normalizeAndPrune(value, policy = {}) {
   const normalized = Array.isArray(value)
     ? value
         .filter(item => item && typeof item === 'object' && !Array.isArray(item))
-        .map(normalizeActivityItem)
+        .map(item => normalizeActivityItem(item, policy.now))
         .filter(Boolean)
     : [];
 
@@ -38,13 +38,14 @@ export function normalizeAndPrune(value, policy = {}) {
   const items = [...byEventId.values()];
 
   return pruneOfflineQueue(items, {
+    now: policy.now,
     maxOfflineDays: Math.min(30, Math.max(1, Number(policy.maxOfflineDays) || 7)),
     maxItems: Math.min(10000, Math.max(1, Number(policy.maxActivitySnapshots) || 10000)),
     getTimestamp: item => item.createdAt || item.timestamp,
   });
 }
 
-function normalizeActivityItem(item) {
+function normalizeActivityItem(item, now) {
   if (!validIdentifier(item.sessionId) && !validIdentifier(item.localSessionId)) {
     return null;
   }
@@ -55,7 +56,7 @@ function normalizeActivityItem(item) {
     ...item,
     clientEventId,
     retryCount: Math.min(1000, Math.max(0, Math.floor(Number(item.retryCount) || 0))),
-    nextRetryAt: normalizeRetryAt(item.nextRetryAt),
+    nextRetryAt: normalizeRetryAt(item.nextRetryAt, now),
   };
 }
 

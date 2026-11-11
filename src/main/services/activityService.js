@@ -4,6 +4,7 @@ import { isDomainExcluded, normalizeActiveDomain } from './activeDomain.js';
 import { powerMonitor, BrowserWindow, app } from 'electron';
 import logger from '../utils/logger.js';
 import apiClient from './apiClient.js';
+import trustedClock from './trustedClock.js';
 import timerService from './timerService.js';
 import path from 'path';
 import secureLocalStorage from './secureLocalStorage.js';
@@ -347,6 +348,7 @@ class ActivityService {
 
   _checkInactivity() {
     const idleState = evaluateIdleState({
+      now: performance.now(),
       systemIdleTime: this.systemIdleTime,
       idleThresholdSeconds: this.idleThresholdSeconds,
       idleWarningSeconds: this.idleWarningSeconds,
@@ -579,6 +581,7 @@ class ActivityService {
     const localSessionId = timerStatus.sessionId;
 
     const snapshot = createActivitySnapshot({
+      now: trustedClock.date(),
       sessionId: localSessionId,
       isOffline: timerService.isOffline,
       activityPercentage,
@@ -633,7 +636,7 @@ class ActivityService {
           this._discardSessionSnapshots(localSessionId);
           logger.warn(`Actividad detenida: cierre definitivo de la sesión ${localSessionId}.`);
         } else {
-          this._enqueueSnapshot(scheduleOfflineRetry(snapshot));
+          this._enqueueSnapshot(scheduleOfflineRetry(snapshot, trustedClock.now()));
           logger.warn('Actividad conservada: el cierre no es definitivo o no se pudo confirmar.');
         }
         return;
@@ -687,7 +690,7 @@ class ActivityService {
     if (!Number.isFinite(timestamp)) return false;
 
     this.browserDomain = normalizedDomain;
-    this.browserDomainObservedAt = timestamp;
+    this.browserDomainObservedAt = performance.now();
 
     if (SUPPORTED_BROWSER_PATTERN.test(this.currentActiveApp || '')) {
       this.currentActiveDomain = normalizedDomain;
@@ -712,7 +715,7 @@ class ActivityService {
     const timestamp = Number(observedAt);
     if (!Number.isFinite(timestamp)) return false;
     this.nativeBrowserDomain = normalizedDomain;
-    this.nativeBrowserDomainObservedAt = timestamp;
+    this.nativeBrowserDomainObservedAt = performance.now();
     if (SUPPORTED_BROWSER_PATTERN.test(this.currentActiveApp || '')) {
       this.currentActiveDomain = normalizedDomain;
     }
@@ -723,13 +726,13 @@ class ActivityService {
     if (!SUPPORTED_BROWSER_PATTERN.test(activeApp || '')) return null;
     if (
       this.nativeBrowserDomain &&
-      Date.now() - this.nativeBrowserDomainObservedAt <= BROWSER_DOMAIN_MAX_AGE_MS
+      performance.now() - this.nativeBrowserDomainObservedAt <= BROWSER_DOMAIN_MAX_AGE_MS
     ) {
       return this.nativeBrowserDomain;
     }
     if (
       !this.browserDomain ||
-      Date.now() - this.browserDomainObservedAt > BROWSER_DOMAIN_MAX_AGE_MS
+      performance.now() - this.browserDomainObservedAt > BROWSER_DOMAIN_MAX_AGE_MS
     ) {
       return null;
     }
@@ -737,6 +740,8 @@ class ActivityService {
   }
 
   async _processActivityQueue() {
+    if (!trustedClock.isReady()) return;
+    this._saveActivityQueue();
     if (this.activityQueue.length === 0) {
       return;
     }
@@ -750,7 +755,7 @@ class ActivityService {
     let successCount = 0;
 
     for (const snapshot of processingItems) {
-      if (snapshot.sessionId && !isOfflineItemReady(snapshot)) {
+      if (snapshot.sessionId && !isOfflineItemReady(snapshot, trustedClock.now())) {
         remaining.push(snapshot);
         continue;
       }
@@ -782,7 +787,7 @@ class ActivityService {
             'activity-queue-rejected'
           );
           if (!confirmedClosed) {
-            remaining.push(scheduleOfflineRetry(snapshot));
+            remaining.push(scheduleOfflineRetry(snapshot, trustedClock.now()));
           } else {
             logger.warn(`Snapshot descartado: cierre definitivo confirmado de la sesión ${snapshot.sessionId}.`);
           }
@@ -790,7 +795,7 @@ class ActivityService {
         }
 
         if (this._isRetryableError(error)) {
-          remaining.push(scheduleOfflineRetry(snapshot));
+          remaining.push(scheduleOfflineRetry(snapshot, trustedClock.now()));
           continue;
         }
 
@@ -844,6 +849,7 @@ class ActivityService {
 
   _toApiPayload(snapshot) {
     return toActivityApiPayload(snapshot, {
+      now: trustedClock.date(),
       defaultIntervalSeconds: this.reportIntervalSeconds,
     });
   }
@@ -883,6 +889,7 @@ class ActivityService {
   _saveActivityQueue() {
     try {
       this.activityQueue = this.activityQueueRepository.save(this.activityQueue, {
+        now: trustedClock.isReady() ? trustedClock.now() : null,
         maxOfflineDays: this.maxOfflineDays,
         maxActivitySnapshots: this.maxQueueSize,
       });
@@ -897,6 +904,7 @@ class ActivityService {
   _loadActivityQueue() {
     try {
       const policy = {
+        now: trustedClock.isReady() ? trustedClock.now() : null,
         maxOfflineDays: this.maxOfflineDays,
         maxActivitySnapshots: this.maxQueueSize
       };

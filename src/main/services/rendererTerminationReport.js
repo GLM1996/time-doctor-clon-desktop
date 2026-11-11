@@ -18,7 +18,7 @@ export function rendererTerminationReport(details, context = {}) {
     severity: details.reason === 'clean-exit' || context.quitting ? 'warning' : 'fatal',
     stack: [
       `Motivo: ${details.reason}; código de salida: ${exitCode}`,
-      `Hora UTC: ${new Date().toISOString()}`,
+      `Hora UTC del servidor: ${context.serverTime || 'sin sincronizar'}`,
       `Segundos desde apertura de ventana: ${context.windowAgeSeconds ?? 'no disponible'}`,
       `Cierre de aplicación en curso: ${Boolean(context.quitting)}`,
       `Ventana visible: ${Boolean(context.visible)}`,

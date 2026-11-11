@@ -47,29 +47,18 @@ if (!gotTheLock) {
     if (isQuitting) return;
     isQuitting = true;
 
-    if (timerService.getStatus().isRunning) {
-      try {
-        await settleWithTimeout(
-          timerService.stop('system'),
-          5000,
-          'Tiempo de espera agotado al cerrar la jornada.',
-        );
-      } catch (error) {
-        logger.warn(
-          `No se confirmó el cierre remoto; se completará mediante la sincronización pendiente: ${error.message}`,
-        );
-        timerService.prepareForShutdown();
-      }
-    }
-
     const forcedExitTimer = setTimeout(() => app.exit(0), 2000);
     forcedExitTimer.unref?.();
+    try { timerService.prepareForShutdown(); }
+    catch (error) { logger.warn('No se pudo guardar el último avance al salir: ' + error.message); }
+
     app.quit();
   };
 
   const createWindow = () =>
     createMainWindow({
       shouldQuit: () => isQuitting,
+      onCloseRequest: requestQuit,
       onCloseToTray: () => trayService.notifyCloseToTray(),
     });
 
@@ -98,6 +87,8 @@ if (!gotTheLock) {
     }
 
     logger.info('🚀 Electron listo');
+    // safeStorage is available after Electron is ready. Keep pending events intact on failure.
+    timerService.initializeSessionJournal();
     logger.info(`📝 Ambiente: ${process.env.NODE_ENV || 'development'}`);
 
     browserDomainBridge.start({
@@ -196,17 +187,16 @@ if (!gotTheLock) {
   // 👇 NUEVO: Limpiar auto-update al cerrar
   app.on('before-quit', () => {
     isQuitting = true;
-    timerService.prepareForShutdown();
-    screenshotService.destroy();
-    captureRealtimeService.destroy();
-    configService.destroy();
-    autoUpdateService.destroy();
-    trayService.destroy();
-    connectionService.destroy();
-    browserDomainBridge.stop();
-    unsubscribeNativeBrowserCollector?.();
+    for (const cleanup of [
+      () => timerService.prepareForShutdown(), () => screenshotService.destroy(),
+      () => captureRealtimeService.destroy(), () => configService.destroy(),
+      () => autoUpdateService.destroy(), () => trayService.destroy(),
+      () => connectionService.destroy(), () => browserDomainBridge.stop(),
+      () => unsubscribeNativeBrowserCollector?.(), () => windowsBrowserUrlService.stop(),
+    ]) {
+      try { cleanup(); } catch (error) { logger.warn('Limpieza al salir: ' + error.message); }
+    }
     unsubscribeNativeBrowserCollector = null;
-    windowsBrowserUrlService.stop();
     logger.info('👋 Cerrando aplicación...');
   });
 

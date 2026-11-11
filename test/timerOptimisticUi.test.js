@@ -1,39 +1,22 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { reconcileObservedElapsed, reconcileElapsedObservation } from "../src/renderer/hooks/useTimerSession.js";
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { reconcileObservedElapsed } from '../src/renderer/hooks/useTimerSession.js';
 
-test("a delayed start acknowledgement cannot move the running counter backwards", () => {
-  assert.equal(reconcileObservedElapsed(4, undefined, false), 4);
-  assert.equal(reconcileObservedElapsed(4, 0, false), 4);
-  assert.equal(reconcileObservedElapsed(4, 6, false), 6);
+test('a delayed acknowledgement cannot move the displayed counter backwards', () => {
+  assert.equal(reconcileObservedElapsed(10,9,false),10);
+  assert.equal(reconcileObservedElapsed(10,undefined,false),10);
 });
 
-test("an explicit reset can still clear the counter after closing the session", () => {
-  assert.equal(reconcileObservedElapsed(4, 0, true), 0);
+test('only a new main-process sample can advance the visible counter', () => {
+  let displayed=9;
+  for (let tick=0;tick<40;tick++) displayed=reconcileObservedElapsed(displayed,9,false);
+  assert.equal(displayed,9);
+  displayed=reconcileObservedElapsed(displayed,10,false);
+  assert.equal(displayed,10);
+  assert.equal(reconcileObservedElapsed(displayed,10,true),10);
 });
 
-test("frequent stale updates cannot freeze the local clock during a connection failure", () => {
-  let observation = { seconds: 10, at: 0 };
-  for (let now = 250; now <= 10000; now += 250) {
-    observation = reconcileElapsedObservation(observation, 10, now, false);
-  }
-  assert.deepEqual(observation, { seconds: 20, at: 10000 });
-});
-
-test("delayed updates account for time since the last local tick", () => {
-  assert.deepEqual(
-    reconcileElapsedObservation({ seconds: 10, at: 0 }, 11, 3500, false),
-    { seconds: 13, at: 3000 },
-  );
-});
-
-test("fresh observations advance the clock and explicit stops reset it", () => {
-  assert.deepEqual(
-    reconcileElapsedObservation({ seconds: 10, at: 0 }, 20, 1500, false),
-    { seconds: 20, at: 1500 },
-  );
-  assert.deepEqual(
-    reconcileElapsedObservation({ seconds: 10, at: 0 }, 0, 1500, true),
-    { seconds: 0, at: 1500 },
-  );
+test('a confirmed reset and real server corrections remain possible', () => {
+  assert.equal(reconcileObservedElapsed(10,0,true),0);
+  assert.equal(reconcileObservedElapsed(10,9,true),9);
 });

@@ -45,6 +45,7 @@ const ALLOWED_INVOKE_CHANNELS = [
   'timer:start',
   'timer:stop',
   'timer:get-status',
+  'timer:sync-pending',
   'timer:get-work-options',
   'timer:get-breaks',
   'timer:start-break',
@@ -76,6 +77,7 @@ const ALLOWED_RECEIVE_CHANNELS = [
   'event:screenshot-update',
   'event:activity-update',
   'event:session-closed',
+  'event:session-synced',
   'event:break-ended',
   'event:idle-countdown',
   'event:idle-notification',
@@ -299,6 +301,8 @@ contextBridge.exposeInMainWorld(
       );
     },
 
+    retrySessionSync: () => invoke('timer:sync-pending'),
+
     getTodayTotal: () => {
       return invoke(
         'time:get-today-total',
@@ -313,6 +317,7 @@ contextBridge.exposeInMainWorld(
       onConnectionStatus: (callback) => on('event:connection-status', callback),
       onAuthExpired: (callback) => on('event:auth-expired', callback),
       onSessionClosed: (callback) => on('event:session-closed', callback),
+      onSessionSynced: (callback) => on('event:session-synced', callback),
       onBreakEnded: (callback) => on('event:break-ended', callback),
       onTimerUpdate: (callback) => on('event:timer-update', callback),
       onSyncUpdate: (callback) => on('event:sync-update', callback),

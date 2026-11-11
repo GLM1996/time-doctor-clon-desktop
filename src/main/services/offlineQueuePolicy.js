@@ -6,7 +6,7 @@ export function getBackoffDelayMs(retryCount) {
 export function normalizeRetryAt(value, now = Date.now()) {
   if (!value) return null;
   const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp) || timestamp > Number(now) + 60 * 60 * 1000) return null;
+  if (!Number.isFinite(timestamp) || (now !== null && timestamp > Number(now) + 60 * 60 * 1000)) return null;
   return new Date(timestamp).toISOString();
 }
 
@@ -22,7 +22,7 @@ export function pruneOfflineQueue(items, {
   return (Array.isArray(items) ? items : [])
     .filter(item => {
       const timestamp = new Date(getTimestamp(item) || 0).getTime();
-      return Number.isFinite(timestamp) && timestamp >= oldestAllowed;
+      return Number.isFinite(timestamp) && (now === null || timestamp >= oldestAllowed);
     })
     .slice(-queueLimit);
 }

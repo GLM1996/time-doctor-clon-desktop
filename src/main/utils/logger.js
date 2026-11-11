@@ -1,6 +1,7 @@
 import log from 'electron-log';
 import { app } from 'electron';
 import { sanitizeCrashText } from '../services/crashSanitizer.js';
+import trustedClock from '../services/trustedClock.js';
 
 // Configurar logger
 log.transports.file.level = 'info';
@@ -8,7 +9,12 @@ log.transports.file.maxSize = 5 * 1024 * 1024;
 log.transports.console.level = app.isPackaged ? 'warn' : 'debug';
 
 // Formato personalizado
-log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}] [{level}] {text}';
+const serverLogFormat = ({ level, data }) => [
+  `[${trustedClock.isReady() ? trustedClock.date().toISOString() : 'hora-servidor-pendiente'}] [${level}]`,
+  ...data,
+];
+log.transports.file.format = serverLogFormat;
+log.transports.console.format = serverLogFormat;
 
 function sanitizeLogArgument(value) {
   if (typeof value === 'string') return sanitizeCrashText(value, 4000);

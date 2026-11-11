@@ -2,6 +2,7 @@ import { safeStorage } from 'electron';
 import Store from 'electron-store';
 import { createResilientElectronStore } from './resilientElectronStore.js';
 import { parseStoredUser, serializeStoredUser } from './storedUserPolicy.js';
+import trustedClock from './trustedClock.js';
 
 const ENCRYPTED_PREFIX = 'safe:';
 const LEGACY_ENCRYPTION_KEY = 'una-clave-secreta-para-encriptar-el-store';
@@ -236,7 +237,7 @@ export const updateHealthStore = {
           ? 'recovery-required'
           : 'verifying',
       attempts,
-      lastStartupAt: new Date().toISOString(),
+      lastStartupAt: trustedClock.isReady() ? trustedClock.date().toISOString() : null,
     };
     store.set('updateHealth', next);
     return next;
@@ -244,7 +245,7 @@ export const updateHealthStore = {
   markHealthy: (currentVersion) => store.set('updateHealth', {
     status: 'healthy',
     currentVersion,
-    verifiedAt: new Date().toISOString(),
+    verifiedAt: trustedClock.isReady() ? trustedClock.date().toISOString() : null,
   }),
   clear: () => store.delete('updateHealth'),
 };

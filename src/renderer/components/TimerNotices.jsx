@@ -93,39 +93,3 @@ export function UpdateNotice({ notice, onDismiss, onUpdate }) {
   );
 }
 
-export function SyncStatusNotice({ status }) {
-  if (!status || (status.pendingTotal <= 0 && status.state === "idle")) return null;
-
-  const hasError = status.state === "error";
-
-  return (
-    <section
-      className={`mb-4 flex items-start gap-3 rounded-[16px] border p-3.5 ${
-        hasError
-          ? "border-[#ddb0a1] bg-[#f5e4df] text-[#98483a]"
-          : "border-[#d8d1c5] bg-[#f7f3ec] text-[#5f625a]"
-      }`}
-      aria-live="polite"
-    >
-      <RefreshCw
-        className={`mt-0.5 h-4 w-4 shrink-0 ${status.state === "syncing" ? "animate-spin" : ""}`}
-        strokeWidth={1.8}
-        aria-hidden="true"
-      />
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold">
-          {status.state === "syncing"
-            ? "Sincronizando datos pendientes"
-            : hasError
-              ? "Sincronización pendiente"
-              : `${status.pendingTotal} elemento${status.pendingTotal === 1 ? "" : "s"} por sincronizar`}
-        </p>
-        <p className="mt-1 text-[9px] leading-4 opacity-80">
-          {hasError && status.lastError
-            ? status.lastError
-            : `${status.pendingSessions || 0} sesiones · ${status.pendingActivity || 0} actividades · ${status.pendingScreenshots || 0} capturas`}
-        </p>
-      </div>
-    </section>
-  );
-}

@@ -1,3 +1,6 @@
+import { describeSessionSyncError } from './sessionSyncErrors.js';
+import { SessionEventJournal } from './sessionEventJournal.js';
+import { authStore } from './store.js';
 import logger from '../utils/logger.js';
 import apiClient from './apiClient.js';
 import trustedClock from './trustedClock.js';
@@ -53,6 +56,7 @@ class TimerService {
     this.statusCheckInterval = null;
 
     this.isRunning = false;
+    this.isPausing = false;
     this.isOffline = false;
     this.currentBreakId = null;
     this.currentBreakEndsAt = null;
@@ -77,132 +81,207 @@ class TimerService {
     });
 
     this._loadPendingSessions();
+    this.activeJournalId = null;
+    this.sessionJournal = null;
+  }
+
+  initializeSessionJournal() {
+    if (this.sessionJournal) return true;
+    try {
+      const journalPath = path.join(app.getPath('userData'), 'session-events.json');
+      const journal = new SessionEventJournal({
+        read: () => secureLocalStorage.readJson(journalPath, []),
+        write: records => secureLocalStorage.writeJson(journalPath, records),
+      });
+      if (journal.records.length) journal.recover();
+      this.sessionJournal = journal;
+      return true;
+    } catch (error) {
+      this.syncState = 'error';
+      this.lastSyncError = 'No se pudo abrir el registro local de sesiones: ' + error.message;
+      logger.error(this.lastSyncError);
+      return false;
+    }
+  }
+
+  _sessionOwner() {
+    const user = authStore.getUser();
+    const userId = user?._id || user?.id;
+    const org = user?.organization?._id || user?.organization;
+    return userId && org ? String(org) + ':' + String(userId) : null;
   }
 
   async start(deviceInfo = {}, workSelection = {}) {
-    if (this.isRunning) {
-      throw new Error('Ya hay una sesión activa.');
+    if (this.isRunning) throw new Error('Ya hay una sesión activa.');
+    if (!this.sessionJournal && !this.initializeSessionJournal()) throw new Error(this.lastSyncError);
+    const ownerId = this._sessionOwner();
+    if (!ownerId) throw new Error('Inicia sesión antes de registrar tiempo.');
+    const settings = this._getSettings(configService.getConfig());
+    if (settings.sessions?.requireProject && !workSelection.projectId) throw new Error('Selecciona un proyecto antes de iniciar.');
+    if (apiClient.isConnected === false && settings.sync?.offlineModeEnabled === false) {
+      throw new Error('No hay conexión y el modo sin conexión está desactivado.');
     }
-
+    // No network work before accepting the start. A verified server reference is required.
+    const session = createOfflineSession(trustedClock.date());
+    const deviceData = buildDeviceInfo(deviceInfo, {
+      platform: process.platform, osVersion: process.getSystemVersion?.() || 'unknown',
+      appVersion: app.getVersion?.() || '1.0.0',
+    });
+    this.sessionJournal.start({
+      localId: session._id, ownerId, startTime: session.startTime,
+      deviceInfo: deviceData, ...buildWorkSelection(workSelection),
+    });
+    this.activeJournalId = session._id;
+    this.sessionId = session._id;
+    this.startTime = new Date(session.startTime);
+    this.elapsedSeconds = 0;
+    this.currentConfig = settings;
+    this.currentDeviceInfo = deviceData;
+    this.workSelection = buildWorkSelection(workSelection);
+    this.isPausing = false;
+    this.isRunning = true;
+    this.isOffline = true; // Awaiting the remote ID; activity stays safely queued.
+    configService.setTrackingActive(true);
     try {
-      logger.info('🟢 Iniciando sesión de trabajo...');
-
-      const config = await this._loadConfig();
-      const settings = this._getSettings(config);
-
-      this.currentConfig = settings;
-
-      const deviceData = buildDeviceInfo(deviceInfo, {
-        platform: process.platform,
-        osVersion: process.getSystemVersion?.() || 'unknown',
-        appVersion: app.getVersion?.() || '1.0.0',
-      });
-
-      this.currentDeviceInfo = deviceData;
-
-      let session;
-      let isOffline = false;
-
-      try {
-        const response = await apiClient.post('/sessions', {
-          deviceInfo: deviceData,
-          ...buildWorkSelection(workSelection),
-        });
-
-        if (!response.data?.success) {
-          throw new Error(
-            response.data?.message || 'Error al iniciar la sesión'
-          );
-        }
-
-        session = response.data.data;
-
-        logger.info('✅ Sesión creada en el backend');
-
-        if (this.pendingSessions.length > 0) {
-          this._syncPendingSessions().catch(error => {
-            logger.warn(
-              `No se pudieron sincronizar operaciones pendientes: ${error.message}`
-            );
-          });
-        }
-      } catch (error) {
-        const networkFailure = isNetworkError(error);
-        const offlineEnabled = settings.sync?.offlineModeEnabled !== false;
-
-        if (!networkFailure) {
-          throw new Error(
-            error.response?.data?.message || error.message
-          );
-        }
-
-        if (!offlineEnabled) {
-          throw new Error(
-            'No se pudo conectar con el servidor y el modo offline está desactivado.'
-          );
-        }
-
-        logger.warn('⚠️ Sin conexión. Creando sesión local offline.');
-
-        session = createOfflineSession(trustedClock.date());
-
-        isOffline = true;
-      }
-
-      this.sessionId = session._id;
-      this.startTime = new Date(session.startTime);
-      this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
-      this.isRunning = true;
-      this.isOffline = isOffline;
-      configService.setTrackingActive(true);
-      this.workSelection = buildWorkSelection(workSelection);
-      this._notifyStatusChange();
-
       this._startTicker();
-
-      if (!this.isOffline) {
-        this.statusCheckInterval = setInterval(() => {
-          this._checkSessionStatus();
-        }, 30 * 1000);
-      }
-
       this._startConfiguredServices(settings);
-
       configService.startSync();
-
-      logger.info(
-        `✅ Sesión iniciada: ${this.sessionId} ${
-          isOffline ? '(OFFLINE)' : '(ONLINE)'
-        }`
-      );
-
-      return {
-        sessionId: this.sessionId,
-        startTime: this.startTime,
-        status: 'running',
-        isOffline
-      };
     } catch (error) {
-      logger.error(`❌ Error iniciando sesión: ${error.message}`);
-
-      this._cleanupIntervals();
-
-      this.isRunning = false;
-      this.isOffline = false;
-      this.sessionId = null;
-      this.startTime = null;
-      this.elapsedSeconds = 0;
-      this._notifyStatusChange();
-
+      this._stopServices();
+      this.sessionJournal.remove(this.activeJournalId);
+      this._resetSessionState();
       throw error;
     }
+    this._notifyStatusChange();
+    this._notifySyncUpdate();
+    this._requestSessionSync();
+    return { sessionId: this.sessionId, startTime: this.startTime, elapsedSeconds: 0, status: 'running', isOffline: true };
+  }
+
+  async retrySessionSync() {
+    if (this.sessionJournal) this.sessionJournal.retryBlocked(this._sessionOwner());
+    return this.syncPendingData();
+  }
+
+  _requestSessionSync() {
+    void this.syncPendingData().catch(error => logger.warn('Sincronización pendiente: ' + error.message));
+  }
+
+  async _syncSessionEvents() {
+    const ownerId = this._sessionOwner();
+    if (!ownerId) return 0;
+    if (!this.sessionJournal && !this.initializeSessionJournal()) throw new Error(this.lastSyncError);
+    // Negotiate before sending new fields. Older backends already support completed offline intervals.
+    let supportsEvents = false;
+    try {
+      const probe = await apiClient.get('/clock', { timeout: 5000 });
+      supportsEvents = Number(probe.data?.capabilities?.sessionEvents) >= 1;
+      this.supportsBreakEventTime = Number(probe.data?.capabilities?.breakEventTime) >= 1;
+    } catch (error) {
+      if (error.response?.status !== 404) throw error;
+    }
+    // Recover validation latches from the previous desktop without deleting any event.
+    for (const item of this.sessionJournal.records.filter(item => item.ownerId === ownerId)) {
+      if (!item.endTime && item.localId !== this.activeJournalId) {
+        this.sessionJournal.stop(item.localId, item.lastObservedAt || item.startTime, 'system');
+      }
+      if (item.errorStatus === 400 || /validaci/i.test(item.lastError || '')) {
+        this.sessionJournal.update(item.localId, { blocked: false });
+      }
+    }
+    return this.sessionJournal.sync(ownerId, {
+      create: async item => {
+        if (ownerId !== this._sessionOwner()) throw new Error('La cuenta cambió durante la sincronización');
+        if (!supportsEvents && !item.endTime) return null;
+        const response = supportsEvents
+          ? await apiClient.post('/sessions', {
+            localId: item.localId, startTime: item.startTime, deviceInfo: item.deviceInfo,
+            ...buildWorkSelection(item),
+          })
+          : await apiClient.post('/sessions/sync-offline', buildOfflineSessionPayload({
+            ...item, duration: calculateElapsedSeconds(item.startTime, Date.parse(item.endTime)),
+          }));
+        if (ownerId !== this._sessionOwner()) throw new Error('La cuenta cambió durante la sincronización');
+        if (!response.data?.success) throw new Error(response.data?.message || 'Inicio no confirmado');
+        return response.data.data;
+      },
+      linked: async item => {
+        if (ownerId !== this._sessionOwner()) throw new Error('La cuenta cambió durante la sincronización');
+        activityService.replaceSessionId(item.localId, item.remoteId);
+        await screenshotService.replaceSessionId(item.localId, item.remoteId);
+        if (this.activeJournalId === item.localId && this.isRunning) {
+          this.sessionId = item.remoteId;
+          this.isOffline = false;
+          if (!this.statusCheckInterval) this.statusCheckInterval = setInterval(() => this._checkSessionStatus(), 30000);
+          this._notifyStatusChange();
+        }
+      },
+      stop: async item => {
+        if (ownerId !== this._sessionOwner()) throw new Error('La cuenta cambió durante la sincronización');
+        const response = await apiClient.post('/sessions/' + item.remoteId + '/stop', {
+          ...(supportsEvents ? { endTime: item.endTime } : {}), reason: item.reason || 'manual', notes: item.notes || null,
+        });
+        if (!response.data?.success) throw new Error(response.data?.message || 'Cierre no confirmado');
+        return response.data.data;
+      },
+      closed: async (item, session) => {
+        if (this.activeJournalId === item.localId && this.isRunning) {
+          this._stopServices();
+          this._resetSessionState();
+          this._notifyUI(IPC_CHANNELS.EVENT_SESSION_CLOSED, {
+            sessionId: item.localId, duration: session.totalDuration,
+            durationSeconds: session.totalDuration, reason: session.closedReason || 'backend',
+            message: 'El servidor confirmó que esta sesión ya estaba cerrada (' + (session.closedReason || 'cierre remoto') + ').',
+          });
+        }
+        const expected = item.endTime ? calculateElapsedSeconds(item.startTime, Date.parse(item.endTime)) : null;
+        this._notifyUI('event:session-synced', {
+          sessionId: item.localId, duration: session.totalDuration,
+          adjusted: expected !== null && Number(session.totalDuration) !== expected,
+          reason: session.closedReason || 'manual',
+        });
+      },
+      rejected: async (item, error) => {
+        if ([403, 409].includes(error.response?.status) && item && this.activeJournalId === item.localId && this.isRunning) {
+          this._stopServices();
+          this._resetSessionState();
+          this._notifyUI(IPC_CHANNELS.EVENT_SESSION_CLOSED, {
+            sessionId: item.localId, duration: 0, reason: 'rejected', queuedForSync: true,
+            message: 'El servidor rechazó el registro. Se conserva para revisión: ' + (error.response?.data?.message || error.message),
+          });
+        }
+      },
+    });
   }
 
   async startBreak(typeId, notes = '') {
     if (!this.isRunning || this.isOffline || !this.sessionId) throw new Error('Necesitas una sesión online activa.');
     if (this.currentBreakId) throw new Error('Ya existe una pausa activa.');
-    const response = await apiClient.post('/breaks/start', { typeId, sessionId: this.sessionId, notes });
-    const activeBreak = response.data?.data;
+    const trackingId = this.activeJournalId || this.sessionId;
+    const startTime = this.startTime;
+    const pausedAt = trustedClock.date();
+    this.elapsedSeconds = calculateElapsedSeconds(startTime, pausedAt);
+    this.isPausing = true;
+    this._stopTicker();
+    let activeBreak;
+    try {
+      const response = await apiClient.post('/breaks/start', {
+        typeId, sessionId: this.sessionId, notes,
+        ...(this.supportsBreakEventTime ? { endTime: pausedAt.toISOString() } : {}),
+      });
+      if (!response.data?.success || !response.data.data?._id) throw new Error(response.data?.message || 'No se pudo iniciar la pausa.');
+      activeBreak = response.data.data;
+    } catch (error) {
+      this.isPausing = false;
+      this._startTicker();
+      throw error;
+    }
+    const confirmed = Number(activeBreak.closedSession?.durationSeconds);
+    const duration = Number.isFinite(confirmed) && confirmed >= 0
+      ? Math.floor(confirmed)
+      : calculateElapsedSeconds(startTime, Date.parse(activeBreak.startTime || pausedAt.toISOString()));
+    if (this.activeJournalId) this.sessionJournal.remove(this.activeJournalId);
+    this.activeJournalId = null;
     this._stopServices();
     this.sessionId = null;
     this.startTime = null;
@@ -211,19 +290,23 @@ class TimerService {
     this.isOffline = false;
     this.currentConfig = null;
     this.currentDeviceInfo = null;
+    this.isPausing = false;
     this.currentBreakId = activeBreak?._id || null;
     this.currentBreakEndsAt = activeBreak?.expiresAt || null;
     this._scheduleBreakExpiration(activeBreak);
     this._notifyStatusChange();
     this._notifyUI(IPC_CHANNELS.EVENT_SESSION_CLOSED, {
+      sessionId: trackingId, duration, durationSeconds: duration, durationFormatted: formatDuration(duration),
       reason: 'break',
       message: `Seguimiento detenido por la pausa ${activeBreak?.type?.name || ''}.`,
     });
-    return activeBreak;
+    return { ...activeBreak, serverNow: trustedClock.date().toISOString() };
   }
 
   async restoreActiveSession(session) {
     if (this.isRunning || !session?._id || !session?.startTime) return false;
+    const journalEntry = this.sessionJournal?.find(String(session._id)) || (session.localId && this.sessionJournal?.find(session.localId));
+    if (journalEntry?.endTime || journalEntry?.blocked) return false;
 
     const localDevice = buildDeviceInfo({}, {
       platform: process.platform,
@@ -261,9 +344,15 @@ class TimerService {
     this._cleanupIntervals();
     this.currentConfig = settings;
     this.currentDeviceInfo = localDevice;
+    if (!this.sessionJournal) throw new Error('No se pudo abrir el registro local de sesiones.');
+    const local = createOfflineSession(startTime);
+    this.sessionJournal.start({ localId: local._id, remoteId: String(resumedSession._id),
+      ownerId: this._sessionOwner(), startTime: startTime.toISOString(), deviceInfo: localDevice });
+    this.activeJournalId = local._id;
     this.sessionId = String(resumedSession._id);
     this.startTime = startTime;
     this.elapsedSeconds = calculateElapsedSeconds(startTime, trustedClock.now());
+    this.isPausing = false;
     this.isRunning = true;
     this.isOffline = false;
     this.workSelection = buildWorkSelection({
@@ -405,6 +494,24 @@ class TimerService {
     const duration = this.elapsedSeconds;
     const activitySnapshot = activityService.getSnapshot();
 
+    if (this.activeJournalId) {
+      const journalId = this.activeJournalId;
+      this.sessionJournal.stop(journalId, endTime.toISOString(), normalizedReason, cleanNotes, activitySnapshot);
+      this._stopServices();
+      this._resetSessionState();
+      const result = {
+        sessionId: journalId, duration, durationSeconds: duration,
+        durationFormatted: formatDuration(duration), status: 'stopped', queuedForSync: true,
+      };
+      this._notifyUI(IPC_CHANNELS.EVENT_SESSION_CLOSED, {
+        ...result, reason: normalizedReason,
+        message: normalizedReason === 'inactivity' ? 'Sesión cerrada por inactividad.' : 'Sesión detenida.',
+      });
+      this._notifySyncUpdate();
+      this._requestSessionSync();
+      return result;
+    }
+
     try {
       logger.info(`🔴 Deteniendo sesión... Motivo: ${reason}`);
 
@@ -484,9 +591,7 @@ class TimerService {
       this._notifyUI('event:session-closed', {
         sessionId,
         reason: normalizedReason,
-        message: queuedForSync
-          ? 'La jornada fue guardada localmente y se sincronizará al recuperar la conexión.'
-          : normalizedReason === 'inactivity'
+        message: normalizedReason === 'inactivity'
             ? 'La jornada fue cerrada por inactividad.'
             : 'La jornada fue guardada correctamente.',
         duration: confirmedDuration,
@@ -529,13 +634,18 @@ class TimerService {
   }
 
   async syncPendingData() {
-    if (this.syncPendingPromise) return this.syncPendingPromise;
-    this.syncPendingPromise = this._syncPendingData();
-    try {
-      return await this.syncPendingPromise;
-    } finally {
-      this.syncPendingPromise = null;
+    if (this.syncPendingPromise) {
+      this.syncAgain = true;
+      return this.syncPendingPromise;
     }
+    this.syncPendingPromise = (async () => {
+      do {
+        this.syncAgain = false;
+        await this._syncPendingData();
+      } while (this.syncAgain);
+    })();
+    try { return await this.syncPendingPromise; }
+    finally { this.syncPendingPromise = null; }
   }
 
   async _syncPendingData() {
@@ -551,11 +661,12 @@ class TimerService {
         await apiClient.get('/health', { timeout: 5000 });
         trustedClock.now();
       }
+      const eventCount = await this._syncSessionEvents();
       const promotedOfflineSession = await this._promoteActiveOfflineSession();
       const synchronizedSessions = await this._syncPendingSessions();
       await activityService.processActivityQueue();
       await screenshotService.processQueue();
-      if (promotedOfflineSession || synchronizedSessions > 0) {
+      if (eventCount > 0 || promotedOfflineSession || synchronizedSessions > 0) {
         this._notifyUI(IPC_CHANNELS.EVENT_TIMER_UPDATE, {
           ...buildTimerUpdate({
             isRunning: this.isRunning,
@@ -563,6 +674,7 @@ class TimerService {
             isOffline: false,
             elapsedSeconds: this.elapsedSeconds,
             sessionId: this.sessionId,
+            trackingId: this.activeJournalId || this.sessionId,
           }),
           refreshTodayTotal: true,
         });
@@ -571,7 +683,7 @@ class TimerService {
       this.lastSyncAt = trustedClock.date().toISOString();
     } catch (error) {
       this.syncState = 'error';
-      this.lastSyncError = error.message;
+      this.lastSyncError = describeSessionSyncError(error);
       throw error;
     } finally {
       this._notifySyncUpdate();
@@ -579,6 +691,8 @@ class TimerService {
   }
 
   async _syncPendingSessions() {
+    this._prunePendingSessions();
+    this._savePendingSessions();
     if (this.pendingSessions.length === 0) {
       return 0;
     }
@@ -776,6 +890,7 @@ class TimerService {
   }
 
   async _promoteActiveOfflineSession() {
+    if (this.activeJournalId) return false;
     if (!this.isRunning || !this.isOffline || !String(this.sessionId || '').startsWith('offline-')) {
       return false;
     }
@@ -834,7 +949,7 @@ class TimerService {
   // Limpieza local idempotente: nunca hace red ni bloquea la salida de Electron.
   prepareForShutdown() {
     try {
-      if (this.isRunning && this.startTime) {
+      if (this.isRunning && !this.isPausing && this.startTime) {
         this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
       }
       const activitySnapshot = activityService.getSnapshot();
@@ -842,7 +957,9 @@ class TimerService {
       if (this.isRunning && this.sessionId) {
         const endTime = trustedClock.date();
 
-        if (this.isOffline || String(this.sessionId).startsWith('offline-')) {
+        if (this.activeJournalId) {
+          this.sessionJournal.stop(this.activeJournalId, endTime.toISOString(), 'system', null, activitySnapshot);
+        } else if (this.isOffline || String(this.sessionId).startsWith('offline-')) {
           const alreadyQueued = this.pendingSessions.some(
             pending => pending.localId === this.sessionId,
           );
@@ -885,6 +1002,8 @@ class TimerService {
   }
 
   _resetSessionState() {
+    this.isPausing = false;
+    this.activeJournalId = null;
     this._cleanupIntervals();
 
     this.sessionId = null;
@@ -973,7 +1092,7 @@ class TimerService {
 
   _savePendingSessions() {
     try {
-      this.pendingSessions = this.pendingSessionRepository.save(this.pendingSessions);
+      this.pendingSessions = this.pendingSessionRepository.save(this.pendingSessions, trustedClock.isReady() ? trustedClock.now() : null);
       this._notifySyncUpdate();
     } catch (error) {
       logger.error(
@@ -984,7 +1103,7 @@ class TimerService {
 
   _loadPendingSessions() {
     try {
-      this.pendingSessions = this.pendingSessionRepository.load();
+      this.pendingSessions = this.pendingSessionRepository.load(trustedClock.isReady() ? trustedClock.now() : null);
 
       this._prunePendingSessions();
 
@@ -1051,14 +1170,15 @@ class TimerService {
   }
 
   getSyncStatus() {
+    const eventCount = this.sessionJournal?.pending(this._sessionOwner()).length || 0;
     const pendingActivity = activityService.activityQueue?.length || 0;
     const pendingScreenshots = screenshotService.pendingQueue?.length || 0;
     return {
       state: this.syncState,
-      pendingSessions: this.pendingSessions.length,
+      pendingSessions: this.pendingSessions.length + eventCount,
       pendingActivity,
       pendingScreenshots,
-      pendingTotal: this.pendingSessions.length + pendingActivity + pendingScreenshots,
+      pendingTotal: this.pendingSessions.length + eventCount + pendingActivity + pendingScreenshots,
       lastSyncAt: this.lastSyncAt,
       lastError: this.lastSyncError
     };
@@ -1089,15 +1209,17 @@ class TimerService {
       currentBreakId: this.currentBreakId,
       isOffline: this.isOffline,
       sessionId: this.sessionId,
+              trackingId: this.activeJournalId || this.sessionId,
       startTime: this.startTime,
       elapsedSeconds: this.elapsedSeconds,
-      pendingOperations: this.pendingSessions.length,
+      pendingOperations: this.getSyncStatus().pendingSessions,
       sync: this.getSyncStatus(),
       config: configService.getStatus?.() || null
     });
   }
 
   async handleRemoteSessionClosed(sessionId, source = 'backend', knownSession) {
+    if (this.isPausing) return false;
     let result;
     try {
       result = await confirmRemoteClosure({
@@ -1129,6 +1251,7 @@ class TimerService {
       `La sesión ${sessionId} fue cerrada externamente (${source}).`
     );
 
+    if (this.activeJournalId) this.sessionJournal.remove(this.activeJournalId);
     this._stopServices();
     this._resetSessionState();
 
@@ -1157,7 +1280,15 @@ class TimerService {
     this._stopTicker();
 
     this.tickInterval = setInterval(() => {
+      if (!this.isRunning || this.isPausing) return;
       this.elapsedSeconds = calculateElapsedSeconds(this.startTime, trustedClock.now());
+      if (this.activeJournalId) {
+        const record = this.sessionJournal.find(this.activeJournalId);
+        if (record && trustedClock.now() - Date.parse(record.lastObservedAt) >= 5000) {
+          try { this.sessionJournal.checkpoint(this.activeJournalId, trustedClock.date().toISOString()); }
+          catch (error) { logger.error('No se pudo guardar el avance de la sesión: ' + error.message); }
+        }
+      }
 
       BrowserWindow.getAllWindows().forEach(window => {
         if (!window.isDestroyed()) {
@@ -1168,12 +1299,13 @@ class TimerService {
               currentBreakId: this.currentBreakId,
               isOffline: this.isOffline,
               elapsedSeconds: this.elapsedSeconds,
-              sessionId: this.sessionId
+              sessionId: this.sessionId,
+              trackingId: this.activeJournalId || this.sessionId
             })
           );
         }
       });
-    }, 1000);
+    }, 100);
 
     logger.debug('⏱️ Ticker iniciado');
   }
@@ -1190,6 +1322,7 @@ class TimerService {
   }
 
   async _checkSessionStatus() {
+    if (this.isPausing) return;
     if (
       !this.isRunning ||
       !this.sessionId ||

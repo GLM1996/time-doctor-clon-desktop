@@ -7,6 +7,7 @@ import {
 import path from 'path';
 import os from 'node:os';
 import { rendererTerminationReport } from './services/rendererTerminationReport.js';
+import trustedClock from './services/trustedClock.js';
 import { fileURLToPath } from 'url';
 
 import logger from './utils/logger.js';
@@ -29,9 +30,10 @@ let mainWindow = null;
 export function createMainWindow({
   shouldQuit = () => false,
   onCloseToTray = () => {},
+  onCloseRequest = null,
 } = {}) {
   const isDev = !app.isPackaged;
-  const windowCreatedAt = Date.now();
+  const windowCreatedAt = performance.now();
 
   const preloadPath = path.join(
     __dirname,
@@ -185,7 +187,8 @@ export function createMainWindow({
     'render-process-gone',
     (_event, details) => {
       const report = rendererTerminationReport(details, {
-        windowAgeSeconds: Math.round((Date.now() - windowCreatedAt) / 1000),
+        windowAgeSeconds: Math.round((performance.now() - windowCreatedAt) / 1000),
+        serverTime: trustedClock.isReady() ? trustedClock.date().toISOString() : null,
         quitting: shouldQuit(),
         visible: mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible(),
         electronVersion: process.versions.electron,
@@ -241,6 +244,11 @@ export function createMainWindow({
 
   mainWindow.on('close', (event) => {
     if (shouldQuit()) return;
+    if (onCloseRequest) {
+      event.preventDefault();
+      void onCloseRequest();
+      return;
+    }
 
     event.preventDefault();
     mainWindow.hide();
